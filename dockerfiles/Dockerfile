@@ -145,8 +145,10 @@ RUN git config --global http.proxy $PROXY_HOST && \
 
 WORKDIR /root/ws/offboard_vrpn_pkgs
 
+# install dependencies for vrpn packages and build the workspace
+# netbase is required for vrpn
 RUN apt-get update && \
-    apt-get install -y libtool && \
+    apt-get install -y libtool netbase && \
     rm -rf /var/lib/apt/lists/* && \
     export http_proxy=$PROXY_HOST && \
     export https_proxy=$PROXY_HOST && \
