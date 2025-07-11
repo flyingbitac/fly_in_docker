@@ -49,7 +49,7 @@ def is_user_in_docker_group() -> bool:
 class ContainerInterface:
     """A helper class for managing Isaac Lab containers."""
 
-    def __init__(self, dir: Path):
+    def __init__(self, dir: Path, custom_model_paths: List[str]):
         """Initialize the container interface with the given parameters.
 
         Args:
@@ -71,14 +71,49 @@ class ContainerInterface:
         """)
         
         self.mounted_volumes: List[Dict[str, Union[str, bool]]] = []
-        self.mount_volume(source=self.dir, target=Path("/root/ws/user_workspace"))
+        self.mount_volume(source=self.dir, target=Path("/root/ws/workspace"))
         self.mount_volume(source=Path("/tmp/.X11-unix"), target=Path("/tmp/.X11-unix"))
         self.mount_volume(source=self.dir.joinpath("ros_log"), target=Path("/root/.ros/log"))
         # self.mount_volume(source=self.dir.joinpath("ros_outputs"), target=Path("/root/.ros/outputs"))
+        self.mount_volume(source=Path(__file__).parent.joinpath("runtime_resources/px4_setup.bash"), target=Path("/root/ws/px4_setup.bash"), read_only=True)
 
         # keep the environment variables from the current environment
         self.environ = os.environ
+        self.custom_model_paths = custom_model_paths
     
+    def add_custom_drone_model(
+        self,
+        model_path: str
+    ):
+        model_path = Path(model_path).expanduser().resolve()
+        container_px4_path = Path("/root/ws/PX4-Autopilot")
+        files = os.listdir(model_path)
+        romfs_file = ""
+        model_mounted = False
+        airframe_mounted = False
+        for file in files:
+            file_path = model_path.joinpath(file).resolve()
+            if os.path.isdir(file_path):
+                model_mounted = True
+                target = container_px4_path.joinpath("Tools/simulation/gazebo-classic/sitl_gazebo-classic/models").joinpath(file)
+                self.mount_volume(source=file_path, target=target, type="bind", read_only=True)
+                print(f"Mounted custom drone model directory: {file_path} to {target}")
+            elif not file.endswith(".yaml"):
+                airframe_mounted = True
+                romfs_file = file
+                target = container_px4_path.joinpath("ROMFS/px4fmu_common/init.d-posix/airframes").joinpath(file)
+                self.mount_volume(source=file_path, target=target, type="bind", read_only=True)
+                print(f"Mounted custom drone model file: {file_path} to {target}")
+        assert model_mounted, "Model directory mounting failed. Please check the model directory."
+        assert airframe_mounted, "Airframe file mounting failed. Please check the model Airframe file."
+        self.model_cmake_list.insert(-2, f"\t{romfs_file}\n")
+        source = Path(__file__).parent.joinpath("runtime_resources/model_CMakeLists_mount.txt")
+        with open(source, "w") as f: f.writelines(self.model_cmake_list)
+        mount_sources = [str(mount["source"]) for mount in self.mounted_volumes]
+        if all(str(source) != mount_source for mount_source in mount_sources):
+            target = container_px4_path.joinpath("ROMFS/px4fmu_common/init.d-posix/airframes/CMakeLists.txt")
+            self.mount_volume(source=source, target=target, type="bind", read_only=True)
+
     def mount_volume(
         self,
         source: Path,
@@ -111,7 +146,7 @@ class ContainerInterface:
             mount_args.append("--mount")
             mount_args.append(f"type={mount['type']},source={mount['source']},target={mount['target']}")
             if mount["read_only"]:
-                mount_args.append(",readonly")
+                mount_args[-1] += ",readonly"
         return mount_args
 
     def is_container_running(self) -> bool:
@@ -204,24 +239,13 @@ class ContainerInterface:
             "pull",
             self.image_name,
         ]
-        result = subprocess.run(command, check=False, capture_output=True, text=True)
-        if result.returncode == 0:
-            print(f"[INFO] Successfully pulled the image '{self.image_name}'.")
-        elif "docker login" in result.stderr:
-            print(f"[ERROR] Failed to pull the image '{self.image_name}'. Please login to the Docker registry first or build the image locally.")
-            raise RuntimeError(dedent(
-                f"""
-                    Please login first by running `docker login --username=zxhomo crpi-jq3nu6qbricb9zcb.cn-beijing.personal.cr.aliyuncs.com`
-                    and pull again.
-                    Contact the author for password.
-                """))
-        else:
-            raise subprocess.CalledProcessError(
-                returncode=result.returncode,
-                cmd=command,
-                output=result.stdout,
-                stderr=result.stderr,
-            )
+        try:
+            result = subprocess.run(command, check=True, capture_output=False, text=True)
+        except subprocess.CalledProcessError as e:
+            print(f"[ERROR] Failed to pull the image '{self.image_name}'.")
+            print(f"[ERROR] If you see 'docker login' above please try to login to the Docker registry and run again:")
+            print(f"`docker login --username=zxhomo {self.repo_name.split("/")[0]}`")
+            raise e
 
     def start(self):
         if not self.is_container_running():
@@ -230,27 +254,29 @@ class ContainerInterface:
             else:
                 print(f"[INFO] The image '{self.image_name}' already exists. Starting the container...")
 
+            with open(Path(__file__).parent.joinpath("runtime_resources/model_CMakeLists.txt"), "r") as f:
+                self.model_cmake_list = f.readlines()
+            
+            [self.add_custom_drone_model(model_path) for model_path in self.custom_model_paths]
             # start the container
-            subprocess.run(
-                [
-                    "docker",
-                    "run",
-                    "--rm",
-                    "-dit",
-                    "--name",
-                    self.container_name,
-                    "--hostname",
-                    self.host_name,
-                    *self.mount_args(),
-                    f"--env=DISPLAY={os.environ.get('DISPLAY', ':0')}",
-                    f"--env=ROS_HOSTNAME={self.host_name}",
-                    f"--env=ROS_MASTER_URI=http://{self.host_name}:11311",
-                    "--privileged", # for USB ports access
-                    "--network=host",
-                    self.image_name,
-                ],
-                check=False,
-            )
+            command = [
+                "docker",
+                "run",
+                "--rm",
+                "-dit",
+                "--name",
+                self.container_name,
+                "--hostname",
+                self.host_name,
+                *self.mount_args(),
+                f"--env=DISPLAY={os.environ.get('DISPLAY', ':0')}",
+                f"--env=ROS_HOSTNAME={self.host_name}",
+                f"--env=ROS_MASTER_URI=http://{self.host_name}:11311",
+                "--privileged", # for USB ports access
+                "--network=host",
+                self.image_name,
+            ]
+            subprocess.run(command, check=False)
         else:
             print(f"[INFO] The container '{self.container_name}' is already running.")
 
@@ -356,10 +382,11 @@ def parse_cli_args() -> argparse.Namespace:
     # We have to create separate parent parsers for common options to our subparsers
     parent_parser = argparse.ArgumentParser(add_help=False)
     parent_parser.add_argument(
-        "--dir",
+        "-d", "--dir",
         default=os.getcwd(),
         help=("The directory to be mounted in the container. "),
     )
+    parent_parser.add_argument("-c", "--custom_model_path", type=str, default=[], action="append", help="Path to a custom drone model directory.")
 
     # Actual command definition begins here
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -382,7 +409,7 @@ def main(args: argparse.Namespace):
         raise RuntimeError("Docker is not installed! Please install Docker following https://docs.docker.com/engine/install/ubuntu/ and try again.")
 
     # creating container interface
-    ci = ContainerInterface(dir=Path(args.dir).expanduser())
+    ci = ContainerInterface(dir=Path(args.dir).expanduser(), custom_model_paths=args.custom_model_path)
 
     if   args.command == "start": ci.start()
     elif args.command == "enter": ci.enter()

@@ -32,24 +32,54 @@ Based on [osrf/ros:noetic-desktop-full](https://hub.docker.com/r/osrf/ros/tags)
 
 ## Usage
 
+### Basic Usage
+Setting everything up:
 ```bash
 # clone the repository
 git clone https://github.com/flyingbitac/fly_in_docker.git
-# pull the image
+# then pull the image
 python fly_in_docker/docker.py pull
 # or download the resources and build the image locally
 python fly_in_docker/docker.py build
+```
+
+Work with the container:
+```bash
 # start the container
-python fly_in_docker/docker.py start --dir=/path/to/your/workspace # will be mounted at /root/ws/user_workspace
+python fly_in_docker/docker.py start -d /path/to/your/workspace # will be mounted at /root/ws/workspace
 # enter the container
 python fly_in_docker/docker.py enter
 # stop the container
 python fly_in_docker/docker.py stop
 ```
 
-Connect through SSH to the container:
+### Connect to the container via SSH:
 
 ```bash
-ssh root@<ip address of the host machine> -p 2222
-# default password is 'letmein'
+ssh root@<ip address of the host machine> -p 2222 # default password is 'letmein'
+```
+
+### Simulation with Custom Drone Models
+
+To use custom drone models, you can specify the path to the model directory using the `-c` or `--custom_model_path` option when starting the container. The model directory should contain a valid PX4 drone model.
+
+For example:
+```bash
+# start the container with custom drone models
+python fly_in_docker/docker.py start \
+  -d /path/to/your/workspace \
+  -c /path/to/your/custom_model_1 \
+  -c /path/to/your/custom_model_2
+
+# enter the container
+python fly_in_docker/docker.py enter
+
+# then re-compile the PX4 firmware with the custom models
+cd ~/ws/PX4-Autopilot && DONT_RUN=1 make px4_sitl_default gazebo
+
+# setting up environment variables
+source ~/ws/px4_setup.bash
+
+# start the simulation with the custom model
+roslaunch px4 mavros_posix_sitl.launch vehicle:=custom_model_1
 ```
