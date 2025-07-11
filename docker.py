@@ -116,7 +116,7 @@ class ContainerInterface:
     
     def add_custom_drone_model(
         self,
-        model_path: str
+        model_path
     ):
         model_path = Path(model_path).expanduser().resolve()
         container_px4_path = Path("/root/ws/PX4-Autopilot")
@@ -355,55 +355,6 @@ class ContainerInterface:
         else:
             raise RuntimeError(f"Can't stop container '{self.container_name}' as it is not running.")
 
-    # def copy(self, output_dir: Path | None = None):
-    #     """Copy artifacts from the running container to the host machine.
-
-    #     Args:
-    #         output_dir: The directory to copy the artifacts to. Defaults to None, in which case
-    #             the context directory is used.
-
-    #     Raises:
-    #         RuntimeError: If the container is not running.
-    #     """
-    #     if self.is_container_running():
-    #         print(f"[INFO] Copying artifacts from the '{self.container_name}' container...\n")
-    #         if output_dir is None:
-    #             output_dir = self.context_dir
-
-    #         # create a directory to store the artifacts
-    #         output_dir = output_dir.joinpath("artifacts")
-    #         if not output_dir.is_dir():
-    #             output_dir.mkdir()
-
-    #         # define dictionary of mapping from docker container path to host machine path
-    #         docker_isaac_lab_path = Path(self.dot_vars["DOCKER_ISAACLAB_PATH"])
-    #         artifacts = {
-    #             docker_isaac_lab_path.joinpath("logs"): output_dir.joinpath("logs"),
-    #             docker_isaac_lab_path.joinpath("docs/_build"): output_dir.joinpath("docs"),
-    #             docker_isaac_lab_path.joinpath("data_storage"): output_dir.joinpath("data_storage"),
-    #         }
-    #         # print the artifacts to be copied
-    #         for container_path, host_path in artifacts.items():
-    #             print(f"\t -{container_path} -> {host_path}")
-    #         # remove the existing artifacts
-    #         for path in artifacts.values():
-    #             shutil.rmtree(path, ignore_errors=True)
-
-    #         # copy the artifacts
-    #         for container_path, host_path in artifacts.items():
-    #             subprocess.run(
-    #                 [
-    #                     "docker",
-    #                     "cp",
-    #                     f"isaac-lab-{self.profile}:{container_path}/",
-    #                     f"{host_path}",
-    #                 ],
-    #                 check=False,
-    #             )
-    #         print("\n[INFO] Finished copying the artifacts from the container.")
-    #     else:
-    #         raise RuntimeError(f"The container '{self.container_name}' is not running.")
-
 def parse_cli_args() -> argparse.Namespace:
     """Parse command line arguments.
 
@@ -434,7 +385,6 @@ def parse_cli_args() -> argparse.Namespace:
     subparsers.add_parser("stop", help="Stop the docker container and remove it.", parents=[parent_parser])
     subparsers.add_parser("pull", help="Pull the docker image from the registry.", parents=[parent_parser])
     subparsers.add_parser("build", help="Build the docker image from the Dockerfile.", parents=[parent_parser])
-    # subparsers.add_parser("copy", help="Copy build and logs artifacts from the container to the host machine.", parents=[parent_parser])
 
     # parse the arguments to determine the command
     args = parser.parse_args()
@@ -455,7 +405,6 @@ def main(args: argparse.Namespace):
     elif args.command == "stop":  ci.stop()
     elif args.command == "pull":  ci.pull()
     elif args.command == "build": ci.build()
-    # elif args.command == "copy": ci.copy()
     else:
         raise RuntimeError(f"Invalid command provided: {args.command}. Please check the help message.")
 
