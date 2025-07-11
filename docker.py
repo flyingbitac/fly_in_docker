@@ -70,12 +70,13 @@ class ContainerInterface:
             `sudo usermod -a -G docker {getpass.getuser()}`
         """)
         
+        self.runtime_resources_dir = Path(__file__).parent.expanduser().resolve().joinpath("runtime_resources")
         self.mounted_volumes: List[Dict[str, Union[str, bool]]] = []
         self.mount_volume(source=self.dir, target=Path("/root/ws/workspace"))
         self.mount_volume(source=Path("/tmp/.X11-unix"), target=Path("/tmp/.X11-unix"))
         self.mount_volume(source=self.dir.joinpath("ros_log"), target=Path("/root/.ros/log"))
         # self.mount_volume(source=self.dir.joinpath("ros_outputs"), target=Path("/root/.ros/outputs"))
-        self.mount_volume(source=Path(__file__).parent.joinpath("runtime_resources/px4_setup.bash"), target=Path("/root/ws/px4_setup.bash"), read_only=True)
+        self.mount_volume(source=self.runtime_resources_dir.joinpath("px4_setup.bash"), target=Path("/root/ws/px4_setup.bash"), read_only=True)
 
         # keep the environment variables from the current environment
         self.environ = os.environ
@@ -107,7 +108,7 @@ class ContainerInterface:
         assert model_mounted, "Model directory mounting failed. Please check the model directory."
         assert airframe_mounted, "Airframe file mounting failed. Please check the model Airframe file."
         self.model_cmake_list.insert(-2, f"\t{romfs_file}\n")
-        source = Path(__file__).parent.joinpath("runtime_resources/model_CMakeLists_mount.txt")
+        source = self.runtime_resources_dir.joinpath("model_CMakeLists_mount.txt")
         with open(source, "w") as f: f.writelines(self.model_cmake_list)
         mount_sources = [str(mount["source"]) for mount in self.mounted_volumes]
         if all(str(source) != mount_source for mount_source in mount_sources):
@@ -254,7 +255,7 @@ class ContainerInterface:
             else:
                 print(f"[INFO] The image '{self.image_name}' already exists. Starting the container...")
 
-            with open(Path(__file__).parent.joinpath("runtime_resources/model_CMakeLists.txt"), "r") as f:
+            with open(self.runtime_resources_dir.joinpath("model_CMakeLists.txt"), "r") as f:
                 self.model_cmake_list = f.readlines()
             
             [self.add_custom_drone_model(model_path) for model_path in self.custom_model_paths]
