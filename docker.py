@@ -49,7 +49,12 @@ def is_user_in_docker_group() -> bool:
 class ContainerInterface:
     """A helper class for managing Isaac Lab containers."""
 
-    def __init__(self, dir: Path, custom_model_paths: List[str]):
+    def __init__(
+        self,
+        dir: Path,
+        custom_model_paths: List[str],
+        alibaba_acr: bool
+    ):
         """Initialize the container interface with the given parameters.
 
         Args:
@@ -59,8 +64,13 @@ class ContainerInterface:
         # set the context directory
         self.context_dir = Path(__file__).resolve().parent.joinpath("resources")
         self.dockerfile_dir = Path(__file__).resolve().parent.joinpath("dockerfiles").joinpath("Dockerfile")
-        self.version = "nucdeploy-v0.3"
-        self.repo_name = "crpi-jq3nu6qbricb9zcb.cn-beijing.personal.cr.aliyuncs.com/zxh_in_bitac/drones"
+        self.version = "deploy-v0.3"
+        if alibaba_acr:
+            self.repo_name = "crpi-jq3nu6qbricb9zcb.cn-beijing.personal.cr.aliyuncs.com/zxh_in_bitac/drones"
+        else:
+            self.repo_name = "deathhorn/onboard_env"
+        self.digest = "sha256:70346dc9a0f22cb477da23819b38b195836de9871254c0b0e38514fcf845bdd0"
+        self.image_id = self.get_image_id()
         self.image_name = f"{self.repo_name}:{self.version}"
         self.container_name = "onboard_env"
         self.host_name = get_hostname()
@@ -70,7 +80,7 @@ class ContainerInterface:
             `sudo usermod -a -G docker {getpass.getuser()}`
         """)
         
-        self.runtime_resources_dir = Path(__file__).parent.expanduser().resolve().joinpath("runtime_resources")
+        self.runtime_resources_dir = Path(__file__).resolve().parent.joinpath("runtime_resources")
         self.mounted_volumes: List[Dict[str, Union[str, bool]]] = []
         self.mount_volume(source=self.dir, target=Path("/root/ws/workspace"))
         self.mount_volume(source=Path("/tmp/.X11-unix"), target=Path("/tmp/.X11-unix"))
@@ -81,6 +91,28 @@ class ContainerInterface:
         # keep the environment variables from the current environment
         self.environ = os.environ
         self.custom_model_paths = custom_model_paths
+    
+    def get_image_id(self) -> str:
+        """Get the image ID of the Docker image.
+
+        Returns:
+            The image ID of the Docker image.
+        """
+        result = subprocess.run(
+            ["docker", "images", "--digests", "--format", "{{.Digest}},{{.ID}}"],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout.strip()
+        image_id = ""
+        for line in result.splitlines():
+            digest, id = line.split(",")
+            if digest == self.digest:
+                image_id = id
+                break
+        if not image_id:
+            raise RuntimeError(f"Image with digest {self.digest} not found. Please pull the image first.")
+        return image_id
     
     def add_custom_drone_model(
         self,
@@ -170,8 +202,13 @@ class ContainerInterface:
         Returns:
             True if the image exists, otherwise False.
         """
-        result = subprocess.run(["docker", "image", "inspect", self.image_name], capture_output=True, text=True)
-        return result.returncode == 0
+        result = subprocess.run(
+            ["docker", "images", "--digests", "--format", "{{.Digest}}"],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout.strip()
+        return self.digest in result.splitlines()
     
     def get_resources(self):
         """
@@ -275,7 +312,7 @@ class ContainerInterface:
                 f"--env=ROS_MASTER_URI=http://{self.host_name}:11311",
                 "--privileged", # for USB ports access
                 "--network=host",
-                self.image_name,
+                self.image_id,
             ]
             subprocess.run(command, check=False)
         else:
@@ -387,6 +424,7 @@ def parse_cli_args() -> argparse.Namespace:
         default=os.getcwd(),
         help=("The directory to be mounted in the container. "),
     )
+    parent_parser.add_argument("-a", "--use_alibaba_acr", action="store_true", help="Whether to pull from Alibaba ACR service or docker hub.")
     parent_parser.add_argument("-c", "--custom_model_path", type=str, default=[], action="append", help="Path to a custom drone model directory.")
 
     # Actual command definition begins here
@@ -410,7 +448,7 @@ def main(args: argparse.Namespace):
         raise RuntimeError("Docker is not installed! Please install Docker following https://docs.docker.com/engine/install/ubuntu/ and try again.")
 
     # creating container interface
-    ci = ContainerInterface(dir=Path(args.dir).expanduser(), custom_model_paths=args.custom_model_path)
+    ci = ContainerInterface(dir=Path(args.dir).expanduser(), custom_model_paths=args.custom_model_path, alibaba_acr=args.use_alibaba_acr)
 
     if   args.command == "start": ci.start()
     elif args.command == "enter": ci.enter()

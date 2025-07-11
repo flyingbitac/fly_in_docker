@@ -83,3 +83,18 @@ source ~/ws/px4_setup.bash
 # start the simulation with the custom model
 roslaunch px4 mavros_posix_sitl.launch vehicle:=custom_model_1
 ```
+
+### 国内用户
+
+对于国内用户，为了绕过 Docker Hub 的访问限制，可以使用阿里云的 ACR 服务。只需在拉取容器时添加 `-a` 或 `--use_alibaba_acr` 参数即可：
+```bash
+# 使用阿里云 ACR 服务拉取容器
+python fly_in_docker/docker.py pull -a
+```
+
+此外，镜像构建的过程也需要从外部网站拉取许多依赖，因此建议使用代理来加速构建：
+```bash
+http_proxy=http://<proxy_address>:<proxy_port> python fly_in_docker/docker.py build
+# or
+https_proxy=http://<proxy_address>:<proxy_port> python fly_in_docker/docker.py build
+```
