@@ -84,6 +84,7 @@ class ContainerInterface:
         self.mounted_volumes: List[Dict[str, Union[str, bool]]] = []
         self.mount_volume(source=self.dir, target=Path("/root/ws/workspace"))
         self.mount_volume(source=Path("/tmp/.X11-unix"), target=Path("/tmp/.X11-unix"))
+        self.mount_volume(source=Path("~/.Xauthority").expanduser(), target=Path("/root/.Xauthority"))
         self.mount_volume(source=self.dir.joinpath("ros_log"), target=Path("/root/.ros/log"))
         # self.mount_volume(source=self.dir.joinpath("ros_outputs"), target=Path("/root/.ros/outputs"))
         self.mount_volume(source=self.runtime_resources_dir.joinpath("px4_setup.bash"), target=Path("/root/ws/px4_setup.bash"), read_only=True)
@@ -295,7 +296,8 @@ class ContainerInterface:
             with open(self.runtime_resources_dir.joinpath("model_CMakeLists.txt"), "r") as f:
                 self.model_cmake_list = f.readlines()
             
-            [self.add_custom_drone_model(model_path) for model_path in self.custom_model_paths]
+            for model_path in self.custom_model_paths:
+                self.add_custom_drone_model(model_path)
             # start the container
             command = [
                 "docker",
