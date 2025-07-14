@@ -278,13 +278,7 @@ class ContainerInterface:
             "pull",
             self.image_name,
         ]
-        try:
-            result = subprocess.run(command, check=True, capture_output=False, text=True)
-        except subprocess.CalledProcessError as e:
-            print(f"[ERROR] Failed to pull the image '{self.image_name}'.")
-            print(f"[ERROR] If you see 'docker login' above please try to login to the Docker registry and run again:")
-            print(f"`docker login --username=zxhomo {self.repo_name.split("/")[0]}`")
-            raise e
+        subprocess.run(command, check=True, capture_output=False, text=True)
 
     def start(self):
         if not self.is_container_running():
