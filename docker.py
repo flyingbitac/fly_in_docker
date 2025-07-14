@@ -70,7 +70,8 @@ class ContainerInterface:
         else:
             self.repo_name = "deathhorn/onboard_env"
         self.digest = "sha256:70346dc9a0f22cb477da23819b38b195836de9871254c0b0e38514fcf845bdd0"
-        self.image_id = self.get_image_id()
+        if self.does_image_exist():
+            self.image_id = self.get_image_id()
         self.image_name = f"{self.repo_name}:{self.version}"
         self.container_name = "onboard_env"
         self.host_name = get_hostname()
