@@ -63,13 +63,13 @@ class ContainerInterface:
         self.dir = dir.resolve().expanduser()
         # set the context directory
         self.context_dir = Path(__file__).resolve().parent.joinpath("resources")
-        self.dockerfile_dir = Path(__file__).resolve().parent.joinpath("dockerfiles").joinpath("Dockerfile")
-        self.version = "deploy-v0.3"
+        self.dockerfile_dir = Path(__file__).resolve().parent.joinpath("dockerfiles").joinpath("Dockerfile.v0.4")
+        self.version = "deploy-v0.4"
         if alibaba_acr:
             self.repo_name = "crpi-jq3nu6qbricb9zcb.cn-beijing.personal.cr.aliyuncs.com/zxh_in_bitac/drones"
         else:
             self.repo_name = "deathhorn/onboard_env"
-        self.digest = "sha256:70346dc9a0f22cb477da23819b38b195836de9871254c0b0e38514fcf845bdd0"
+        self.digest = "sha256:04fefd56e553b973693e4000da2a67114d6aba69cfca402e045a1046027f1ff6"
         if self.does_image_exist():
             self.image_id = self.get_image_id()
         self.image_name = f"{self.repo_name}:{self.version}"
