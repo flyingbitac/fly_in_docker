@@ -1,0 +1,145 @@
+FROM arm64v8/ros:noetic-robot-focal
+
+ARG PROXY_HOST=""
+
+# Setup your sources.list and keys
+RUN rm /etc/apt/sources.list.d/ros* && \
+    apt-get update && \
+    apt-get install curl -y && \
+    curl -s https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc | sudo apt-key add - && \
+    sh -c 'echo "deb http://packages.ros.org/ros/ubuntu $(lsb_release -sc) main" > /etc/apt/sources.list.d/ros-latest.list' && \
+    rm -rf /var/lib/apt/lists/*
+
+# allow ssh access
+RUN apt-get update && \
+    apt-get install -y \
+        passwd \
+        openssl \
+        openssh-server && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN echo 'root:letmein' | chpasswd && \
+    echo "Port 2222" >> /etc/ssh/sshd_config && \
+    echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config && \
+    echo "PermitRootLogin yes" >> /etc/ssh/sshd_config
+
+# install MAVROS and dependencies
+RUN apt-get update && \
+    apt-get install -y \
+        ros-noetic-mavros \
+        ros-noetic-mavros-extras \
+        ros-noetic-mavros-msgs \
+        ros-noetic-cv-bridge \
+        build-essential \
+        python3-pip \
+        python3-catkin-tools \
+        python3-rosinstall-generator \
+        git \
+        # for realsense installation
+        curl \
+        # for ifconfig
+        net-tools \
+        wget \
+        apt-transport-https && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /root/ws
+
+# install geographiclib datasets
+RUN wget http://gh-proxy.com/https://raw.githubusercontent.com/mavlink/mavros/master/mavros/scripts/install_geographiclib_datasets.sh -O /root/ws/install_geographiclib_datasets.sh && \
+    export http_proxy=$PROXY_HOST && \
+    export https_proxy=$PROXY_HOST && \
+    bash /root/ws/install_geographiclib_datasets.sh && \
+    export http_proxy="" && \
+    export https_proxy="" && \
+    rm /root/ws/install_geographiclib_datasets.sh
+
+WORKDIR /root/ws/
+
+RUN echo "source /opt/ros/noetic/setup.bash" >> /root/.bashrc
+
+# install Realsense SDK and ROS wrapper
+RUN mkdir -p /etc/apt/keyrings && \
+    curl -sSf https://librealsense.intel.com/Debian/librealsense.pgp | tee /etc/apt/keyrings/librealsense.pgp > /dev/null && \
+    echo "deb [signed-by=/etc/apt/keyrings/librealsense.pgp] https://librealsense.intel.com/Debian/apt-repo `lsb_release -cs` main" | tee /etc/apt/sources.list.d/librealsense.list && \
+    apt-get update && \
+    apt-get install -y \
+        # for lsusb
+        usbutils \
+        librealsense2-utils \
+        librealsense2-dev \
+        librealsense2-dbg \
+        ros-noetic-realsense2-camera && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN pip install pyrealsense2 && \
+    python3 -m pip install -U pip && \
+    python3 -m pip cache purge
+
+# following https://github.com/IntelRealSense/realsense-ros/issues/1408
+COPY 99-realsense-libusb.rules /etc/udev/rules.d/99-realsense-libusb.rules
+
+# install dependencies for inference
+RUN pip install -q -U -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple \
+        onnxruntime \
+        line_profiler \
+        flatbuffers \
+        packaging \
+        protobuf \
+        sympy \
+        matplotlib \
+        opencv-python && \
+    python3 -m pip cache purge
+
+# prebuild the vrpn packages for optitrack
+RUN git config --global http.proxy $PROXY_HOST && \
+    git config --global https.proxy $PROXY_HOST && \
+    git clone https://github.com/flyingbitac/offboard_vrpn_pkgs.git --recursive /root/ws/offboard_vrpn_pkgs/src && \
+    git config --global --unset http.proxy && \
+    git config --global --unset https.proxy
+
+WORKDIR /root/ws/offboard_vrpn_pkgs
+
+# install dependencies for vrpn packages and build the workspace
+# netbase is required for vrpn
+RUN apt-get update && \
+    apt-get install -y libtool netbase ros-noetic-tf2-geometry-msgs && \
+    rm -rf /var/lib/apt/lists/* && \
+    export http_proxy=$PROXY_HOST && \
+    export https_proxy=$PROXY_HOST && \
+    catkin config --extend /opt/ros/noetic && \
+    cd /root/ws/offboard_vrpn_pkgs && \
+    catkin build && \
+    export http_proxy="" && \
+    export https_proxy="" && \
+    echo "source /root/ws/offboard_vrpn_pkgs/devel/setup.bash" >> /root/.bashrc
+
+WORKDIR /root/ws/
+
+# prebuild the glog and ceres solver for VINS-Fusion
+RUN git config --global http.proxy $PROXY_HOST && \
+    git config --global https.proxy $PROXY_HOST && \
+    git clone https://github.com/flyingbitac/vins.git && \
+    rm -rf /root/ws/vins/src/ && \
+    git config --global --unset http.proxy && \
+    git config --global --unset https.proxy
+
+WORKDIR /root/ws/vins
+
+RUN cd /root/ws/vins/glog/ && \
+    chmod +x ./autogen.sh && chmod +x ./configure && \
+    ./autogen.sh && ./configure && \
+    make -j$(nproc) && make install && \
+    apt-get update && \
+    apt-get install liblapack-dev libsuitesparse-dev libgflags-dev libgoogle-glog-dev libgtest-dev -y && \
+    cd /root/ws/vins/ceres-solver-2.0.0rc1/ && \
+    mkdir build && cd build && \
+    cmake .. && make -j$(nproc) && make install && \
+    apt-get install ros-noetic-ddynamic-reconfigure && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /root/ws/
+
+EXPOSE 2222 11311
+
+ENTRYPOINT service ssh restart && bash

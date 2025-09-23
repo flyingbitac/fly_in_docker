@@ -13,38 +13,12 @@ import grp
 import getpass
 from textwrap import dedent
 
-def get_hostname() -> str:
-    """Get the hostname of the machine.
-
-    Returns:
-        The hostname of the machine.
-    """
-    return subprocess.run(
-        ["hostname"],
-        capture_output=True,
-        text=True,
-        check=False,
-    ).stdout.strip()
-
-def is_user_in_docker_group() -> bool:
-    """
-    Check if the current user is a member of the 'docker' group.
-
-    Returns:
-        True if the user is in the 'docker' group, False otherwise.
-    """
-    try:
-        docker_grp = grp.getgrnam("docker")
-    except KeyError:
-        # 'docker' group does not exist on the system
-        return False
-
-    # Get list of group IDs the process belongs to
-    user_gids = os.getgroups()
-    # Also check membership by username in the group's member list
-    username = getpass.getuser()
-
-    return (docker_grp.gr_gid in user_gids) or (username in docker_grp.gr_mem)
+from utils import (
+    get_hostname,
+    is_user_in_docker_group,
+    get_architecture,
+    download_file
+)
 
 class ContainerInterface:
     """A helper class for managing Isaac Lab containers."""
@@ -53,26 +27,24 @@ class ContainerInterface:
         self,
         dir: Path,
         custom_model_paths: List[str],
-        alibaba_acr: bool
+        alibaba_acr: bool,
+        arm: bool
     ):
-        """Initialize the container interface with the given parameters.
-
-        Args:
-            dir: The directory to be mounted in the container.
-        """
+        self.arm64 = arm or (get_architecture() in ["aarch64", "arm64"])
         self.dir = dir.resolve().expanduser()
         # set the context directory
         self.context_dir = Path(__file__).resolve().parent.joinpath("resources")
-        self.dockerfile_dir = Path(__file__).resolve().parent.joinpath("dockerfiles").joinpath("Dockerfile.v0.4")
-        self.version = "deploy-v0.4"
-        if alibaba_acr:
-            self.repo_name = "crpi-jq3nu6qbricb9zcb.cn-beijing.personal.cr.aliyuncs.com/zxh_in_bitac/drones"
+        if self.arm64:
+            self.dockerfile_dir = Path(__file__).resolve().parent.joinpath("dockerfiles").joinpath("Dockerfile.arm64.v0.4")
+            self.version = "deploy-arm64-v0.4"
         else:
-            self.repo_name = "deathhorn/onboard_env"
-        self.digest = "sha256:04fefd56e553b973693e4000da2a67114d6aba69cfca402e045a1046027f1ff6"
+            self.dockerfile_dir = Path(__file__).resolve().parent.joinpath("dockerfiles").joinpath("Dockerfile.v0.4")
+            self.version = "deploy-v0.4"
+        self.repo_name_acr = "crpi-jq3nu6qbricb9zcb.cn-beijing.personal.cr.aliyuncs.com/zxh_in_bitac/drones"
+        self.repo_name = "deathhorn/onboard_env"
+        self.pull_from_acr = alibaba_acr
         if self.does_image_exist():
             self.image_id = self.get_image_id()
-        self.image_name = f"{self.repo_name}:{self.version}"
         self.container_name = "onboard_env"
         self.host_name = get_hostname()
         
@@ -88,11 +60,19 @@ class ContainerInterface:
         self.mount_volume(source=Path("~/.Xauthority").expanduser(), target=Path("/root/.Xauthority"))
         self.mount_volume(source=self.dir.joinpath("ros_log"), target=Path("/root/.ros/log"))
         # self.mount_volume(source=self.dir.joinpath("ros_outputs"), target=Path("/root/.ros/outputs"))
-        self.mount_volume(source=self.runtime_resources_dir.joinpath("px4_setup.bash"), target=Path("/root/ws/px4_setup.bash"), read_only=True)
+        if not self.arm64:
+            self.mount_volume(source=self.runtime_resources_dir.joinpath("px4_setup.bash"), target=Path("/root/ws/px4_setup.bash"), read_only=True)
 
         # keep the environment variables from the current environment
         self.environ = os.environ
         self.custom_model_paths = custom_model_paths
+    
+    @property
+    def image_name(self) -> str:
+        if self.pull_from_acr:
+            return f"{self.repo_name_acr}:{self.version}"
+        else:
+            return f"{self.repo_name}:{self.version}"
     
     def get_image_id(self) -> str:
         """Get the image ID of the Docker image.
@@ -101,20 +81,16 @@ class ContainerInterface:
             The image ID of the Docker image.
         """
         result = subprocess.run(
-            ["docker", "images", "--digests", "--format", "{{.Digest}},{{.ID}}"],
+            ["docker", "images", "--format", "{{.ID}},{{.Repository}}:{{.Tag}}"],
             capture_output=True,
             text=True,
             check=False,
         ).stdout.strip()
-        image_id = ""
         for line in result.splitlines():
-            digest, id = line.split(",")
-            if digest == self.digest:
-                image_id = id
-                break
-        if not image_id:
-            raise RuntimeError(f"Image with digest {self.digest} not found. Please pull the image first.")
-        return image_id
+            id, name = line.split(",")
+            if name == f"{self.repo_name}:{self.version}" or name == f"{self.repo_name_acr}:{self.version}":
+                return id
+        raise RuntimeError(f"Image not found. Please pull or build the image first.")
     
     def add_custom_drone_model(
         self,
@@ -205,12 +181,15 @@ class ContainerInterface:
             True if the image exists, otherwise False.
         """
         result = subprocess.run(
-            ["docker", "images", "--digests", "--format", "{{.Digest}}"],
+            ["docker", "images", "--format", "{{.Repository}}:{{.Tag}}"],
             capture_output=True,
             text=True,
             check=False,
         ).stdout.strip()
-        return self.digest in result.splitlines()
+        image_name_docker_hub = f"{self.repo_name}:{self.version}"
+        image_name_acr = f"{self.repo_name_acr}:{self.version}"
+        names = [line.strip() for line in result.splitlines()]
+        return (image_name_docker_hub in names) or (image_name_acr in names)
     
     def get_resources(self):
         """
@@ -218,38 +197,20 @@ class ContainerInterface:
         """
         if not os.path.exists(self.context_dir):
             os.makedirs(self.context_dir)
-        commands = [
-            [
-                "wget",
-                "https://github.com/acados/tera_renderer/releases/download/v0.0.34/t_renderer-v0.0.34-linux",
-                "-O",
-                str(self.context_dir.joinpath("t_renderer")),
-            ],
-            [
-                "wget",
-                "https://github.com/IntelRealSense/librealsense/blob/master/config/99-realsense-libusb.rules",
-                "-O",
-                str(self.context_dir.joinpath("99-realsense-libusb.rules")),
-            ],
-        ]
-        for command in commands:
-            if not os.path.exists(command[-1]):
-                print(f"[INFO] Downloading resources with command: {' '.join(command)}")
-                try:
-                    subprocess.run(command, check=True, capture_output=True, text=True, cwd=self.context_dir)
-                except subprocess.CalledProcessError as e:
-                    command[1] = "http://gh-proxy.com/" + command[1]  # Fallback to HTTP proxy if download fails
-                    print(f"[WARNING] Download failed with error: {e}. Retrying with proxy...")
-                    subprocess.run(command, check=True, capture_output=True, text=True, cwd=self.context_dir)
-            else:
-                print(f"[INFO] Resource {command[-1]} already exists. Skipping download.")
+        download_file(
+            url="https://github.com/acados/tera_renderer/releases/download/v0.0.34/t_renderer-v0.0.34-linux",
+            dest=str(self.context_dir.joinpath("t_renderer")),
+        )
+        download_file(
+            url="https://github.com/IntelRealSense/librealsense/blob/master/config/99-realsense-libusb.rules",
+            dest=str(self.context_dir.joinpath("99-realsense-libusb.rules")),
+        )
     
     def build(self):
         # raise NotImplementedError("The build method is not implemented yet.")
         self.get_resources()
-        command = [
-            "docker",
-            "build",
+        build_command = ["docker", "build"] if not self.arm64 else ["docker", "buildx", "build", "--platform", "linux/arm64"]
+        command = build_command + [
             "-t",
             self.image_name,
             "--network=host",
@@ -274,12 +235,11 @@ class ContainerInterface:
         if self.does_image_exist():
             print(f"[INFO] The image '{self.image_name}' already exists. No need to pull it again.")
             return
-        command = [ 
-            "docker",
-            "pull",
-            self.image_name,
-        ]
+        command = ["docker", "pull", self.image_name]
         subprocess.run(command, check=True, capture_output=False, text=True)
+        if self.pull_from_acr:
+            tag_command = ["docker", "tag", self.get_image_id(), f"{self.repo_name}:{self.version}"]
+            subprocess.run(tag_command, check=True)
 
     def start(self):
         if not self.is_container_running():
@@ -373,6 +333,7 @@ def parse_cli_args() -> argparse.Namespace:
         help=("The directory to be mounted in the container. "),
     )
     parent_parser.add_argument("-a", "--use_alibaba_acr", action="store_true", help="Whether to pull from Alibaba ACR service or docker hub.")
+    parent_parser.add_argument("--arm", action="store_true", help="Whether to build the arm64 version of the image.")
     parent_parser.add_argument("-c", "--custom_model_path", type=str, default=[], action="append", help="Path to a custom drone model directory.")
 
     # Actual command definition begins here
@@ -395,7 +356,12 @@ def main(args: argparse.Namespace):
         raise RuntimeError("Docker is not installed! Please install Docker following https://docs.docker.com/engine/install/ubuntu/ and try again.")
 
     # creating container interface
-    ci = ContainerInterface(dir=Path(args.dir).expanduser(), custom_model_paths=args.custom_model_path, alibaba_acr=args.use_alibaba_acr)
+    ci = ContainerInterface(
+        dir=Path(args.dir).expanduser(),
+        custom_model_paths=args.custom_model_path,
+        alibaba_acr=args.use_alibaba_acr,
+        arm=args.arm
+    )
 
     if   args.command == "start": ci.start()
     elif args.command == "enter": ci.enter()
