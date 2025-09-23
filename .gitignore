@@ -2,3 +2,4 @@ resources/*
 runtime_resources/model_CMakeLists_mount.txt
 ros_log/
 ros_outputs/
+**/__pycache__
