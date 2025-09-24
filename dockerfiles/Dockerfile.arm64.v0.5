@@ -1,6 +1,7 @@
 FROM arm64v8/ros:noetic-robot-focal
 
-ARG PROXY_HOST=""
+ARG HTTP_PROXY=""
+ARG HTTPS_PROXY=""
 
 # Setup your sources.list and keys
 RUN rm /etc/apt/sources.list.d/ros* && \
@@ -46,12 +47,8 @@ RUN apt-get update && \
 RUN mkdir -p /root/ws
 
 # install geographiclib datasets
-RUN wget http://gh-proxy.com/https://raw.githubusercontent.com/mavlink/mavros/master/mavros/scripts/install_geographiclib_datasets.sh -O /root/ws/install_geographiclib_datasets.sh && \
-    export http_proxy=$PROXY_HOST && \
-    export https_proxy=$PROXY_HOST && \
-    bash /root/ws/install_geographiclib_datasets.sh && \
-    export http_proxy="" && \
-    export https_proxy="" && \
+RUN http_proxy=$HTTP_PROXY https_proxy=$HTTPS_PROXY wget http://gh-proxy.com/https://raw.githubusercontent.com/mavlink/mavros/master/mavros/scripts/install_geographiclib_datasets.sh -O /root/ws/install_geographiclib_datasets.sh && \
+    http_proxy=$HTTP_PROXY https_proxy=$HTTPS_PROXY bash /root/ws/install_geographiclib_datasets.sh && \
     rm /root/ws/install_geographiclib_datasets.sh
 
 WORKDIR /root/ws/
@@ -77,7 +74,15 @@ RUN pip install pyrealsense2 && \
     python3 -m pip cache purge
 
 # following https://github.com/IntelRealSense/realsense-ros/issues/1408
-COPY 99-realsense-libusb.rules /etc/udev/rules.d/99-realsense-libusb.rules
+# and https://github.com/IntelRealSense/realsense-ros/issues/2450#issuecomment-1943006000
+RUN mkdir -p /etc/udev/rules.d/ && \
+    http_proxy=$HTTP_PROXY https_proxy=$HTTPS_PROXY wget \
+        https://raw.githubusercontent.com/IntelRealSense/librealsense/refs/tags/v2.56.5/config/99-realsense-libusb.rules \
+        -O /etc/udev/rules.d/99-realsense-libusb.rules && \
+    http_proxy=$HTTP_PROXY https_proxy=$HTTPS_PROXY wget \
+        https://raw.githubusercontent.com/IntelRealSense/librealsense/refs/tags/v2.56.5/config/99-realsense-d4xx-mipi-dfu.rules \
+        -O /etc/udev/rules.d/99-realsense-d4xx-mipi-dfu.rules && \
+    rm /lib/udev/rules.d/60-librealsense2-udev-rules.rules
 
 # install dependencies for inference
 RUN pip install -q -U -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple \
@@ -92,8 +97,8 @@ RUN pip install -q -U -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple \
     python3 -m pip cache purge
 
 # prebuild the vrpn packages for optitrack
-RUN git config --global http.proxy $PROXY_HOST && \
-    git config --global https.proxy $PROXY_HOST && \
+RUN git config --global http.proxy $HTTP_PROXY && \
+    git config --global https.proxy $HTTPS_PROXY && \
     git clone https://github.com/flyingbitac/offboard_vrpn_pkgs.git --recursive /root/ws/offboard_vrpn_pkgs/src && \
     git config --global --unset http.proxy && \
     git config --global --unset https.proxy
@@ -105,20 +110,16 @@ WORKDIR /root/ws/offboard_vrpn_pkgs
 RUN apt-get update && \
     apt-get install -y libtool netbase ros-noetic-tf2-geometry-msgs && \
     rm -rf /var/lib/apt/lists/* && \
-    export http_proxy=$PROXY_HOST && \
-    export https_proxy=$PROXY_HOST && \
     catkin config --extend /opt/ros/noetic && \
     cd /root/ws/offboard_vrpn_pkgs && \
-    catkin build && \
-    export http_proxy="" && \
-    export https_proxy="" && \
+    http_proxy=$HTTP_PROXY https_proxy=$HTTPS_PROXY catkin build && \
     echo "source /root/ws/offboard_vrpn_pkgs/devel/setup.bash" >> /root/.bashrc
 
 WORKDIR /root/ws/
 
 # prebuild the glog and ceres solver for VINS-Fusion
-RUN git config --global http.proxy $PROXY_HOST && \
-    git config --global https.proxy $PROXY_HOST && \
+RUN git config --global http.proxy $HTTP_PROXY && \
+    git config --global https.proxy $HTTPS_PROXY && \
     git clone https://github.com/flyingbitac/vins.git && \
     rm -rf /root/ws/vins/src/ && \
     git config --global --unset http.proxy && \
@@ -140,6 +141,4 @@ RUN cd /root/ws/vins/glog/ && \
 
 WORKDIR /root/ws/
 
-EXPOSE 2222 11311
-
-ENTRYPOINT service ssh restart && bash
+ENTRYPOINT ["bash", "-c", "service ssh restart && exec bash"]

@@ -1,6 +1,7 @@
 FROM osrf/ros:noetic-desktop-full
 
-ARG PROXY_HOST=""
+ARG HTTP_PROXY=""
+ARG HTTPS_PROXY=""
 
 # Setup your sources.list and keys
 RUN rm /etc/apt/sources.list.d/ros* && \
@@ -46,17 +47,13 @@ RUN apt-get update && \
 RUN mkdir -p /root/ws
 
 # install geographiclib datasets
-RUN wget http://gh-proxy.com/https://raw.githubusercontent.com/mavlink/mavros/master/mavros/scripts/install_geographiclib_datasets.sh -O /root/ws/install_geographiclib_datasets.sh && \
-    export http_proxy=$PROXY_HOST && \
-    export https_proxy=$PROXY_HOST && \
-    bash /root/ws/install_geographiclib_datasets.sh && \
-    export http_proxy="" && \
-    export https_proxy="" && \
+RUN http_proxy=$HTTP_PROXY https_proxy=$HTTPS_PROXY wget https://raw.githubusercontent.com/mavlink/mavros/master/mavros/scripts/install_geographiclib_datasets.sh -O /root/ws/install_geographiclib_datasets.sh && \
+    http_proxy=$HTTP_PROXY https_proxy=$HTTPS_PROXY bash /root/ws/install_geographiclib_datasets.sh && \
     rm /root/ws/install_geographiclib_datasets.sh
 
 # install PX4-Autopilot
-RUN git config --global http.proxy $PROXY_HOST && \
-    git config --global https.proxy $PROXY_HOST && \
+RUN git config --global http.proxy $HTTP_PROXY && \
+    git config --global https.proxy $HTTPS_PROXY && \
     git clone https://github.com/PX4/PX4-Autopilot.git --recursive -b v1.15.4 /root/ws/PX4-Autopilot && \
     git config --global --unset http.proxy && \
     git config --global --unset https.proxy
@@ -71,7 +68,7 @@ RUN pip config set global.index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/we
 WORKDIR /root/ws/PX4-Autopilot
 
 # prebuild for gazebo simulation
-RUN DONT_RUN=1 make px4_sitl_default gazebo-classic
+RUN http_proxy=$HTTP_PROXY https_proxy=$HTTPS_PROXY DONT_RUN=1 make px4_sitl_default gazebo-classic
 
 WORKDIR /root/ws/
 
@@ -97,7 +94,15 @@ RUN mkdir -p /etc/apt/keyrings && \
     python3 -m pip cache purge
 
 # following https://github.com/IntelRealSense/realsense-ros/issues/1408
-COPY 99-realsense-libusb.rules /etc/udev/rules.d/99-realsense-libusb.rules
+# and https://github.com/IntelRealSense/realsense-ros/issues/2450#issuecomment-1943006000
+RUN mkdir -p /etc/udev/rules.d/ && \
+    http_proxy=$HTTP_PROXY https_proxy=$HTTPS_PROXY wget \
+        https://raw.githubusercontent.com/IntelRealSense/librealsense/refs/tags/v2.56.5/config/99-realsense-libusb.rules \
+        -O /etc/udev/rules.d/99-realsense-libusb.rules && \
+    http_proxy=$HTTP_PROXY https_proxy=$HTTPS_PROXY wget \
+        https://raw.githubusercontent.com/IntelRealSense/librealsense/refs/tags/v2.56.5/config/99-realsense-d4xx-mipi-dfu.rules \
+        -O /etc/udev/rules.d/99-realsense-d4xx-mipi-dfu.rules && \
+    rm /lib/udev/rules.d/60-librealsense2-udev-rules.rules
 
 # install dependencies for inference
 RUN pip install -q torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 --index-url https://download.pytorch.org/whl/cpu && \
@@ -117,8 +122,8 @@ RUN pip install -q -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple casad
     python3 -m pip cache purge
 
 # install acados: https://docs.acados.org/installation/index.html#linux-mac, https://docs.acados.org/python_interface/index.html#installation
-RUN git config --global http.proxy $PROXY_HOST && \
-    git config --global https.proxy $PROXY_HOST && \
+RUN git config --global http.proxy $HTTP_PROXY && \
+    git config --global https.proxy $HTTPS_PROXY && \
     git clone https://github.com/acados/acados.git --recursive -b v0.5.0 /root/ws/acados && \
     git config --global --unset http.proxy && \
     git config --global --unset https.proxy
@@ -130,15 +135,14 @@ RUN mkdir -p /root/ws/acados/build && \
     pip install -e /root/ws/acados/interfaces/acados_template -q -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple && \
     python3 -m pip cache purge && \
     echo "export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:\"/root/ws/acados/lib\"" >> /root/.bashrc && \
-    echo "export ACADOS_SOURCE_DIR=\"/root/ws/acados/\"" >> /root/.bashrc
-
-COPY t_renderer /root/ws/acados/bin/t_renderer
+    echo "export ACADOS_SOURCE_DIR=\"/root/ws/acados/\"" >> /root/.bashrc && \
+    wget https://github.com/acados/tera_renderer/releases/download/v0.0.34/t_renderer-v0.0.34-linux -O /root/ws/acados/bin/t_renderer
 
 RUN chmod +x /root/ws/acados/bin/t_renderer
 
 # prebuild the vrpn packages for optitrack
-RUN git config --global http.proxy $PROXY_HOST && \
-    git config --global https.proxy $PROXY_HOST && \
+RUN git config --global http.proxy $HTTP_PROXY && \
+    git config --global https.proxy $HTTPS_PROXY && \
     git clone https://github.com/flyingbitac/offboard_vrpn_pkgs.git --recursive /root/ws/offboard_vrpn_pkgs/src && \
     git config --global --unset http.proxy && \
     git config --global --unset https.proxy
@@ -150,17 +154,35 @@ WORKDIR /root/ws/offboard_vrpn_pkgs
 RUN apt-get update && \
     apt-get install -y libtool netbase && \
     rm -rf /var/lib/apt/lists/* && \
-    export http_proxy=$PROXY_HOST && \
-    export https_proxy=$PROXY_HOST && \
     catkin config --extend /opt/ros/noetic && \
     cd /root/ws/offboard_vrpn_pkgs && \
-    catkin build && \
-    export http_proxy="" && \
-    export https_proxy="" && \
+    http_proxy=$HTTP_PROXY https_proxy=$HTTPS_PROXY catkin build && \
     echo "source /root/ws/offboard_vrpn_pkgs/devel/setup.bash" >> /root/.bashrc
 
 WORKDIR /root/ws/
 
-EXPOSE 2222 11311
+# prebuild the glog and ceres solver for VINS-Fusion
+RUN git config --global http.proxy $HTTP_PROXY && \
+    git config --global https.proxy $HTTPS_PROXY && \
+    git clone https://github.com/flyingbitac/vins.git /root/ws/vins && \
+    rm -rf /root/ws/vins/src/ && \
+    git config --global --unset http.proxy && \
+    git config --global --unset https.proxy
 
-ENTRYPOINT service ssh restart && bash
+WORKDIR /root/ws/vins
+
+RUN cd /root/ws/vins/glog/ && \
+    chmod +x ./autogen.sh && chmod +x ./configure && \
+    ./autogen.sh && ./configure && \
+    make -j$(nproc) && make install && \
+    apt-get update && \
+    apt-get install liblapack-dev libsuitesparse-dev libgflags-dev libgoogle-glog-dev libgtest-dev -y && \
+    cd /root/ws/vins/ceres-solver-2.0.0rc1/ && \
+    mkdir build && cd build && \
+    cmake .. && make -j$(nproc) && make install && \
+    apt-get install ros-noetic-ddynamic-reconfigure && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /root/ws/
+
+ENTRYPOINT ["bash", "-c", "service ssh restart && exec bash"]

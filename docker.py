@@ -25,21 +25,21 @@ class ContainerInterface:
 
     def __init__(
         self,
-        dir: Path,
+        work_dir: Path,
         custom_model_paths: List[str],
         alibaba_acr: bool,
         arm: bool
     ):
         self.arm64 = arm or (get_architecture() in ["aarch64", "arm64"])
-        self.dir = dir.resolve().expanduser()
+        self.work_dir = work_dir.resolve().expanduser()
         # set the context directory
         self.context_dir = Path(__file__).resolve().parent.joinpath("resources")
         if self.arm64:
-            self.dockerfile_dir = Path(__file__).resolve().parent.joinpath("dockerfiles").joinpath("Dockerfile.arm64.v0.4")
-            self.version = "deploy-arm64-v0.4"
+            self.composefile_dir = Path(__file__).resolve().parent.joinpath("docker-compose.arm64.yml")
+            self.tag = "deploy-arm64-v0.5"
         else:
-            self.dockerfile_dir = Path(__file__).resolve().parent.joinpath("dockerfiles").joinpath("Dockerfile.v0.4")
-            self.version = "deploy-v0.4"
+            self.composefile_dir = Path(__file__).resolve().parent.joinpath("docker-compose.yml")
+            self.tag = "deploy-v0.5"
         self.repo_name_acr = "crpi-jq3nu6qbricb9zcb.cn-beijing.personal.cr.aliyuncs.com/zxh_in_bitac/drones"
         self.repo_name = "deathhorn/onboard_env"
         self.pull_from_acr = alibaba_acr
@@ -55,11 +55,11 @@ class ContainerInterface:
         
         self.runtime_resources_dir = Path(__file__).resolve().parent.joinpath("runtime_resources")
         self.mounted_volumes: List[Dict[str, Union[str, bool]]] = []
-        self.mount_volume(source=self.dir, target=Path("/root/ws/workspace"))
+        self.mount_volume(source=self.work_dir, target=Path("/root/ws/workspace"))
         self.mount_volume(source=Path("/tmp/.X11-unix"), target=Path("/tmp/.X11-unix"))
         self.mount_volume(source=Path("~/.Xauthority").expanduser(), target=Path("/root/.Xauthority"))
-        self.mount_volume(source=self.dir.joinpath("ros_log"), target=Path("/root/.ros/log"))
-        # self.mount_volume(source=self.dir.joinpath("ros_outputs"), target=Path("/root/.ros/outputs"))
+        self.mount_volume(source=self.work_dir.joinpath("ros_log"), target=Path("/root/.ros/log"))
+        self.mount_volume(source=self.work_dir.joinpath("ros_outputs"), target=Path("/root/.ros/outputs"))
         if not self.arm64:
             self.mount_volume(source=self.runtime_resources_dir.joinpath("px4_setup.bash"), target=Path("/root/ws/px4_setup.bash"), read_only=True)
 
@@ -70,9 +70,9 @@ class ContainerInterface:
     @property
     def image_name(self) -> str:
         if self.pull_from_acr:
-            return f"{self.repo_name_acr}:{self.version}"
+            return f"{self.repo_name_acr}:{self.tag}"
         else:
-            return f"{self.repo_name}:{self.version}"
+            return f"{self.repo_name}:{self.tag}"
     
     def get_image_id(self) -> str:
         """Get the image ID of the Docker image.
@@ -88,7 +88,7 @@ class ContainerInterface:
         ).stdout.strip()
         for line in result.splitlines():
             id, name = line.split(",")
-            if name == f"{self.repo_name}:{self.version}" or name == f"{self.repo_name_acr}:{self.version}":
+            if name == f"{self.repo_name}:{self.tag}" or name == f"{self.repo_name_acr}:{self.tag}":
                 return id
         raise RuntimeError(f"Image not found. Please pull or build the image first.")
     
@@ -150,7 +150,7 @@ class ContainerInterface:
         )
     
     def mount_args(self):
-        os.makedirs(self.dir.joinpath("ros_log"), exist_ok=True)
+        os.makedirs(self.work_dir.joinpath("ros_log"), exist_ok=True)
         # os.makedirs(self.dir.joinpath("ros_outputs"), exist_ok=True)
         mount_args = []
         for mount in self.mounted_volumes:
@@ -186,8 +186,8 @@ class ContainerInterface:
             text=True,
             check=False,
         ).stdout.strip()
-        image_name_docker_hub = f"{self.repo_name}:{self.version}"
-        image_name_acr = f"{self.repo_name_acr}:{self.version}"
+        image_name_docker_hub = f"{self.repo_name}:{self.tag}"
+        image_name_acr = f"{self.repo_name_acr}:{self.tag}"
         names = [line.strip() for line in result.splitlines()]
         return (image_name_docker_hub in names) or (image_name_acr in names)
     
@@ -207,29 +207,24 @@ class ContainerInterface:
         )
     
     def build(self):
-        # raise NotImplementedError("The build method is not implemented yet.")
-        self.get_resources()
-        build_command = ["docker", "build"] if not self.arm64 else ["docker", "buildx", "build", "--platform", "linux/arm64"]
-        command = build_command + [
-            "-t",
-            self.image_name,
-            "--network=host",
-            str(self.context_dir),
-            "-f",
-            str(self.dockerfile_dir)
+        command = [
+            "docker",
+            "compose",
+            "--file",
+            self.composefile_dir,
+            "up",
+            "--build",
+            "--no-start"
         ]
         http_proxy, https_proxy = self.environ.get("http_proxy", ""), self.environ.get("https_proxy", "")
+        env = {**self.environ, "HOSTNAME": self.host_name}
         if len(http_proxy) > 0:
-            command.append("--build-arg")
-            command.append(f"PROXY_HOST={http_proxy}")
             print(f"[INFO] Using HTTP proxy {http_proxy} for building the image.")
-        elif len(https_proxy) > 0:
-            command.append("--build-arg")
-            command.append(f"PROXY_HOST={https_proxy}")
+        if len(https_proxy) > 0:
             print(f"[INFO] Using HTTPS proxy {https_proxy} for building the image.")
-        else:
+        if len(http_proxy) == 0 and len(https_proxy) == 0:
             print("[WARNING] No proxy environment variables found. Building without proxy. The build may stuck or fail if the network is restricted.")
-        subprocess.run(command, check=False, cwd=Path(__file__).resolve().parent)
+        subprocess.run(command, check=False, cwd=Path(__file__).resolve().parent, env=env)
     
     def pull(self):
         if self.does_image_exist():
@@ -238,7 +233,7 @@ class ContainerInterface:
         command = ["docker", "pull", self.image_name]
         subprocess.run(command, check=True, capture_output=False, text=True)
         if self.pull_from_acr:
-            tag_command = ["docker", "tag", self.get_image_id(), f"{self.repo_name}:{self.version}"]
+            tag_command = ["docker", "tag", self.get_image_id(), f"{self.repo_name}:{self.tag}"]
             subprocess.run(tag_command, check=True)
 
     def start(self):
@@ -306,7 +301,6 @@ class ContainerInterface:
             subprocess.run(
                 ["docker", "stop", self.container_name],
                 check=False,
-                cwd=self.context_dir,
                 env=self.environ,
             )
         else:
@@ -357,7 +351,7 @@ def main(args: argparse.Namespace):
 
     # creating container interface
     ci = ContainerInterface(
-        dir=Path(args.dir).expanduser(),
+        work_dir=Path(args.dir).expanduser(),
         custom_model_paths=args.custom_model_path,
         alibaba_acr=args.use_alibaba_acr,
         arm=args.arm
