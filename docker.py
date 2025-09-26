@@ -13,7 +13,7 @@ import grp
 import getpass
 from textwrap import dedent
 
-from utils import (
+from .utils import (
     get_hostname,
     is_user_in_docker_group,
     get_architecture,
@@ -47,7 +47,7 @@ class ContainerInterface:
         self.pull_from_acr = alibaba_acr
         if self.does_image_exist():
             self.image_id = self.get_image_id()
-        self.container_name = f"{str(self.work_dir)}:{self.tag}"
+        self.container_name = f"{str(self.work_dir)}-{self.tag}"[1:].replace("/", "_")
         self.host_name = get_hostname()
         
         assert is_user_in_docker_group(), dedent(f"""
@@ -244,7 +244,7 @@ class ContainerInterface:
             if not self.does_image_exist():
                 raise RuntimeError(f"The image '{self.image_name}' does not exist. Please pull or build it first by `python docker.py pull/build`.")
             else:
-                print(f"[INFO] The image '{self.image_name}' already exists. Starting the container...")
+                print(f"[INFO] The image '{self.image_name}' already exists. Starting the container \"{self.container_name}\"")
 
             with open(self.runtime_resources_dir.joinpath("model_CMakeLists.txt"), "r") as f:
                 self.model_cmake_list = f.readlines()
