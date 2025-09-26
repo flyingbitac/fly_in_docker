@@ -28,24 +28,26 @@ class ContainerInterface:
         work_dir: Path,
         custom_model_paths: List[str],
         alibaba_acr: bool,
-        arm: bool
+        arm: bool,
+        workspace_target: str = "/root/ws/workspace"
     ):
         self.arm64 = arm or (get_architecture() in ["aarch64", "arm64"])
         self.work_dir = work_dir.resolve().expanduser()
         # set the context directory
-        self.context_dir = Path(__file__).resolve().parent.joinpath("resources")
+        repo_root = Path(__file__).resolve().parent
+        self.context_dir = repo_root.joinpath("resources")
         if self.arm64:
-            self.composefile_dir = Path(__file__).resolve().parent.joinpath("docker-compose.arm64.yml")
+            self.composefile_dir = repo_root.joinpath("docker-compose.arm64.yml")
             self.tag = "deploy-arm64-v0.5"
         else:
-            self.composefile_dir = Path(__file__).resolve().parent.joinpath("docker-compose.yml")
+            self.composefile_dir = repo_root.joinpath("docker-compose.yml")
             self.tag = "deploy-v0.5"
         self.repo_name_acr = "crpi-jq3nu6qbricb9zcb.cn-beijing.personal.cr.aliyuncs.com/zxh_in_bitac/drones"
         self.repo_name = "deathhorn/onboard_env"
         self.pull_from_acr = alibaba_acr
         if self.does_image_exist():
             self.image_id = self.get_image_id()
-        self.container_name = "onboard_env"
+        self.container_name = f"{str(self.work_dir)}:{self.tag}"
         self.host_name = get_hostname()
         
         assert is_user_in_docker_group(), dedent(f"""
@@ -53,13 +55,12 @@ class ContainerInterface:
             `sudo usermod -a -G docker {getpass.getuser()}`
         """)
         
-        self.runtime_resources_dir = Path(__file__).resolve().parent.joinpath("runtime_resources")
+        self.runtime_resources_dir = repo_root.joinpath("runtime_resources")
         self.mounted_volumes: List[Dict[str, Union[str, bool]]] = []
-        self.mount_volume(source=self.work_dir, target=Path("/root/ws/workspace"))
+        self.mount_volume(source=self.work_dir, target=Path(workspace_target))
         self.mount_volume(source=Path("/tmp/.X11-unix"), target=Path("/tmp/.X11-unix"))
         self.mount_volume(source=Path("~/.Xauthority").expanduser(), target=Path("/root/.Xauthority"))
         self.mount_volume(source=self.work_dir.joinpath("ros_log"), target=Path("/root/.ros/log"))
-        self.mount_volume(source=self.work_dir.joinpath("ros_outputs"), target=Path("/root/.ros/outputs"))
         if not self.arm64:
             self.mount_volume(source=self.runtime_resources_dir.joinpath("px4_setup.bash"), target=Path("/root/ws/px4_setup.bash"), read_only=True)
 
@@ -140,6 +141,8 @@ class ContainerInterface:
             type: The type of mount. Defaults to "bind".
             read_only: Whether the mount is read-only. Defaults to False.
         """
+        if not os.path.exists(source) and type == "bind":
+            os.makedirs(source)
         self.mounted_volumes.append(
             {
                 "source": str(source),
