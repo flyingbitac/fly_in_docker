@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import os
+import sys
 import shutil
 import subprocess
 from pathlib import Path
@@ -13,7 +14,8 @@ import grp
 import getpass
 from textwrap import dedent
 
-from .utils import (
+sys.path.append(str(Path(__file__).resolve().parent))
+from utils import (
     get_hostname,
     is_user_in_docker_group,
     get_architecture,
