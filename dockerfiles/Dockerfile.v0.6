@@ -1,0 +1,24 @@
+FROM deathhorn/onboard_env:deploy-v0.5
+
+# install text editors and a dependency of ego-planner
+RUN apt-get update && \
+    apt-get install -y \
+        libarmadillo-dev \
+        vim \
+        nano && \
+    rm -rf /var/lib/apt/lists/*
+
+# install dependencies of YOPO: https://github.com/TJU-Aerial-Robotics/YOPO/blob/YOPO-Simple/YOPO/requirements.txt
+RUN pip install --ignore-installed -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple \
+        open3d==0.19.0 \
+        ruamel-yaml==0.17.21 \
+        tensorboard==2.14.0 \
+        tensorboardX \
+        rich==14.0.0 \
+        scikit-build==0.18.1 \
+        h5py && \
+    python3 -m pip cache purge
+
+WORKDIR /root/ws/
+
+ENTRYPOINT ["bash", "-c", "service ssh restart && exec bash"]

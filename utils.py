@@ -1,3 +1,4 @@
+import re
 import os
 import subprocess
 import grp
@@ -65,3 +66,21 @@ def download_file(url: str, dest: str) -> None:
             subprocess.run(command, check=True, capture_output=True, text=True, cwd=str(Path(dest).resolve().parent))
         else:
             raise e
+
+def check_port_occupied(port: int) -> bool:
+    """Check if a port is occupied.
+
+    Args:
+        port: The port to be checked.
+
+    Returns:
+        True if the port is occupied, False otherwise.
+    """
+    result = subprocess.run(
+        ["netstat", "-tunlp"],
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout.strip()
+    pattern = rf":{re.escape(str(port))}\b"
+    return re.search(pattern, result) is not None

@@ -19,7 +19,8 @@ from utils import (
     get_hostname,
     is_user_in_docker_group,
     get_architecture,
-    download_file
+    download_file,
+    check_port_occupied,
 )
 
 class ContainerInterface:
@@ -40,10 +41,10 @@ class ContainerInterface:
         self.context_dir = repo_root.joinpath("resources")
         if self.arm64:
             self.composefile_dir = repo_root.joinpath("docker-compose.arm64.yml")
-            self.tag = "deploy-arm64-v0.5"
+            self.tag = "deploy-arm64-v0.6"
         else:
             self.composefile_dir = repo_root.joinpath("docker-compose.yml")
-            self.tag = "deploy-v0.5"
+            self.tag = "deploy-v0.6"
         self.repo_name_acr = "crpi-jq3nu6qbricb9zcb.cn-beijing.personal.cr.aliyuncs.com/zxh_in_bitac/drones"
         self.repo_name = "deathhorn/onboard_env"
         self.pull_from_acr = alibaba_acr
@@ -230,6 +231,8 @@ class ContainerInterface:
         if len(http_proxy) == 0 and len(https_proxy) == 0:
             print("[WARNING] No proxy environment variables found. Building without proxy. The build may stuck or fail if the network is restricted.")
         subprocess.run(command, check=False, cwd=Path(__file__).resolve().parent, env=env)
+        tag_command = ["docker", "tag", self.get_image_id(), f"{self.repo_name_acr}:{self.tag}"]
+        subprocess.run(tag_command, check=True)
     
     def pull(self):
         if self.does_image_exist():
@@ -253,6 +256,12 @@ class ContainerInterface:
             
             for model_path in self.custom_model_paths:
                 self.add_custom_drone_model(model_path)
+            
+            port = 11311
+            while check_port_occupied(port):
+                print(f"[WARNING] Port {port} is already occupied. Trying the next port...")
+                port += 1
+            print(f"[INFO] Using port {port} for ROS master.")
             # start the container
             command = [
                 "docker",
@@ -266,7 +275,7 @@ class ContainerInterface:
                 *self.mount_args(),
                 f"--env=DISPLAY={os.environ.get('DISPLAY', ':0')}",
                 f"--env=ROS_HOSTNAME={self.host_name}",
-                f"--env=ROS_MASTER_URI=http://{self.host_name}:11311",
+                f"--env=ROS_MASTER_URI=http://{self.host_name}:{port}/",
                 "--privileged", # for USB ports access
                 "--network=host",
                 self.image_id,
