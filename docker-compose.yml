@@ -1,4 +1,21 @@
 services:
+  deploy-v0.7:
+    build:
+      context: ./dockerfiles
+      dockerfile: Dockerfile.v0.7
+      network: host
+      platforms:
+        - linux/amd64
+      args:
+        http_proxy: ${http_proxy}
+        https_proxy: ${https_proxy}
+    image: deathhorn/onboard_env:deploy-v0.7-dev
+
+    hostname: ${HOSTNAME}     # matches host's hostname
+    network_mode: "host"      # use host network
+    privileged: true          # equivalent to --privileged
+
+  # ---- Older versions: not started by default ----
   deploy-v0.6:
     build:
       context: ./dockerfiles
@@ -10,12 +27,11 @@ services:
         http_proxy: ${http_proxy}
         https_proxy: ${https_proxy}
     image: deathhorn/onboard_env:deploy-v0.6
+    profiles: ["archived"]
 
     hostname: ${HOSTNAME}     # matches host's hostname
     network_mode: "host"      # use host network
     privileged: true          # equivalent to --privileged
-
-  # ---- Older versions: not started by default ----
   deploy-v0.5:
     build:
       context: ./dockerfiles

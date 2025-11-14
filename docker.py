@@ -44,7 +44,7 @@ class ContainerInterface:
             self.tag = "deploy-arm64-v0.6"
         else:
             self.composefile_dir = repo_root.joinpath("docker-compose.yml")
-            self.tag = "deploy-v0.6"
+            self.tag = "deploy-v0.7-dev"
         self.repo_name_acr = "crpi-jq3nu6qbricb9zcb.cn-beijing.personal.cr.aliyuncs.com/zxh_in_bitac/drones"
         self.repo_name = "deathhorn/onboard_env"
         self.pull_from_acr = alibaba_acr
