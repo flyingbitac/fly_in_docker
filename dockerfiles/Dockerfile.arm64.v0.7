@@ -1,0 +1,46 @@
+FROM deathhorn/onboard_env:deploy-arm64-v0.6
+
+ARG HTTP_PROXY=""
+ARG HTTPS_PROXY=""
+
+WORKDIR /root/ws/
+
+# tmpc dependency
+RUN apt-get update && \
+    apt-get install -y ros-noetic-pybind11-catkin && \
+    rm -rf /var/lib/apt/lists/*
+
+# video recording dependency
+RUN pip install imageio[ffmpeg,pyav] -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple && \
+    python3 -m pip cache purge
+
+# install Livox SDK2 and livox_ros_driver
+RUN mkdir -p /root/ws/livox_ws && \
+    cd /root/ws/livox_ws && \
+    git config --global http.proxy $HTTP_PROXY && \
+    git config --global https.proxy $HTTPS_PROXY && \
+    git clone https://github.com/Livox-SDK/Livox-SDK2.git && \
+    git config --global --unset http.proxy && \
+    git config --global --unset https.proxy && \
+    cd /root/ws/livox_ws/Livox-SDK2/ && \
+    mkdir build && \
+    cd /root/ws/livox_ws/Livox-SDK2/build && \
+    cmake .. && make -j && \
+    make install
+
+RUN cd /root/ws/livox_ws && \
+    mkdir -p /root/ws/livox_ws/src && \
+    catkin config --extend /opt/ros/noetic && \
+    cd /root/ws/livox_ws/src && \
+    git config --global http.proxy $HTTP_PROXY && \
+    git config --global https.proxy $HTTPS_PROXY && \
+    git clone https://github.com/flyingbitac/livox_ros_driver2.git && \
+    git config --global --unset http.proxy && \
+    git config --global --unset https.proxy && \
+    cd /root/ws/livox_ws/src/livox_ros_driver2/ && \
+    bash ./build.sh ROS1 && \
+    echo "source /root/ws/livox_ws/devel/setup.bash" >> /root/.bashrc
+
+WORKDIR /root/ws/
+
+ENTRYPOINT ["bash", "-c", "service ssh restart && exec bash"]
