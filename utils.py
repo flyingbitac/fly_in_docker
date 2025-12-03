@@ -77,7 +77,7 @@ def check_port_occupied(port: int) -> bool:
         True if the port is occupied, False otherwise.
     """
     result = subprocess.run(
-        ["netstat", "-tunlp"],
+        ["ss", "-tunlp"],
         capture_output=True,
         text=True,
         check=False,
