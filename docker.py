@@ -13,6 +13,7 @@ import argparse
 import grp
 import getpass
 from textwrap import dedent
+import re
 
 sys.path.append(str(Path(__file__).resolve().parent))
 from utils import (
@@ -166,19 +167,25 @@ class ContainerInterface:
                 mount_args[-1] += ",readonly"
         return mount_args
 
-    def is_container_running(self) -> bool:
+    def get_running_container_name(self) -> Union[str, None]:
         """Check if the container is running.
 
         Returns:
             True if the container is running, otherwise False.
         """
-        status = subprocess.run(
-            ["docker", "container", "inspect", "-f", "{{.State.Status}}", self.container_name],
+        result = subprocess.run(
+            ["docker", "ps", "--format", "{{.Names}}"],
             capture_output=True,
             text=True,
             check=False,
         ).stdout.strip()
-        return status == "running"
+        names = [line.strip() for line in result.splitlines()]
+        container_name = None
+        for name in names:
+            if self.container_name in name:
+                container_name = name
+                break
+        return container_name
 
     def does_image_exist(self) -> bool:
         """Check if the Docker image exists.
@@ -245,11 +252,14 @@ class ContainerInterface:
             subprocess.run(tag_command, check=True)
 
     def start(self):
-        if not self.is_container_running():
+        if self.get_running_container_name() is None:
             if not self.does_image_exist():
                 raise RuntimeError(f"The image '{self.image_name}' does not exist. Please pull or build it first by `python docker.py pull/build`.")
             else:
-                print(f"[INFO] The image '{self.image_name}' already exists. Starting the container \"{self.container_name}\"")
+                ros_port = self._get_ros_ports()
+                gazebo_port = self._get_gazebo_ports()
+                container_name_with_port = f"{self.container_name}-ros{ros_port}-gazebo{gazebo_port}"
+                print(f"[INFO] The image '{self.image_name}' already exists. Starting the container \"{container_name_with_port}\"")
 
             with open(self.runtime_resources_dir.joinpath("model_CMakeLists.txt"), "r") as f:
                 self.model_cmake_list = f.readlines()
@@ -257,11 +267,6 @@ class ContainerInterface:
             for model_path in self.custom_model_paths:
                 self.add_custom_drone_model(model_path)
             
-            port = 11311
-            while check_port_occupied(port):
-                print(f"[WARNING] Port {port} is already occupied. Trying the next port...")
-                port += 1
-            print(f"[INFO] Using port {port} for ROS master.")
             # start the container
             command = [
                 "docker",
@@ -269,20 +274,21 @@ class ContainerInterface:
                 "--rm",
                 "-dit",
                 "--name",
-                self.container_name,
+                container_name_with_port,
                 "--hostname",
                 self.host_name,
                 *self.mount_args(),
                 f"--env=DISPLAY={os.environ.get('DISPLAY', ':0')}",
                 f"--env=ROS_HOSTNAME={self.host_name}",
-                f"--env=ROS_MASTER_URI=http://{self.host_name}:{port}/",
+                f"--env=ROS_MASTER_URI=http://{self.host_name}:{ros_port}/",
+                f"--env=GAZEBO_MASTER_URI=http://{self.host_name}:{gazebo_port}", # there must be no trailing slash here
                 "--privileged", # for USB ports access
                 "--network=host",
                 self.image_id,
             ]
             subprocess.run(command, check=False)
         else:
-            print(f"[INFO] The container '{self.container_name}' is already running.")
+            print(f"[INFO] The container '{self.get_running_container_name()}' is already running.")
 
     def enter(self):
         """Enter the running container by executing a bash shell.
@@ -290,19 +296,20 @@ class ContainerInterface:
         Raises:
             RuntimeError: If the container is not running.
         """
-        if self.is_container_running():
-            print(f"[INFO] Entering the existing '{self.container_name}' container in a bash session...\n")
+        running_container_name = self.get_running_container_name()
+        if running_container_name is not None:
+            print(f"[INFO] Entering the existing '{running_container_name}' container in a bash session...\n")
             subprocess.run([
                 "docker",
                 "exec",
                 "--interactive",
                 "--tty",
                 f"--env=DISPLAY={os.environ.get('DISPLAY', ':0')}",
-                f"{self.container_name}",
+                running_container_name,
                 "bash",
             ])
         else:
-            raise RuntimeError(f"The container '{self.container_name}' is not running.")
+            raise RuntimeError(f"The container '{running_container_name}' is not running.")
 
     def stop(self):
         """Stop the running container using the Docker compose command.
@@ -310,15 +317,56 @@ class ContainerInterface:
         Raises:
             RuntimeError: If the container is not running.
         """
-        if self.is_container_running():
-            print(f"[INFO] Stopping the launched docker container '{self.container_name}'...\n")
+        running_container_name = self.get_running_container_name()
+        if running_container_name is not None:
+            print(f"[INFO] Stopping the launched docker container '{running_container_name}'...\n")
             subprocess.run(
-                ["docker", "stop", self.container_name],
+                ["docker", "stop", running_container_name],
                 check=False,
                 env=self.environ,
             )
         else:
             raise RuntimeError(f"Can't stop container '{self.container_name}' as it is not running.")
+    
+    def _get_ros_ports(self) -> int:
+        result = subprocess.run(
+            ["docker", "ps", "--format", "{{.Names}}"],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout.strip()
+        pattern = re.compile(r"-ros(\d+)")
+        ros_ports = set()
+        for line in result.splitlines():
+            match = pattern.search(line)
+            if match:
+                ros_ports.add(int(match.group(1)))
+        base_port = 11311
+        while base_port in ros_ports or check_port_occupied(base_port):
+            print(f"[WARNING] Port {base_port} is already occupied. Trying the next port...")
+            base_port += 1
+        print(f"[INFO] Using port {base_port} for ROS master.")
+        return base_port
+    
+    def _get_gazebo_ports(self) -> int:
+        result = subprocess.run(
+            ["docker", "ps", "--format", "{{.Names}}"],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout.strip()
+        pattern = re.compile(r"-gazebo(\d+)")
+        ros_ports = set()
+        for line in result.splitlines():
+            match = pattern.search(line)
+            if match:
+                ros_ports.add(int(match.group(1)))
+        base_port = 11345
+        while base_port in ros_ports or check_port_occupied(base_port):
+            print(f"[WARNING] Port {base_port} is already occupied. Trying the next port...")
+            base_port += 1
+        print(f"[INFO] Using port {base_port} for Gazebo.")
+        return base_port
 
 def parse_cli_args() -> argparse.Namespace:
     """Parse command line arguments.
