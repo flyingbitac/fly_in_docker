@@ -42,10 +42,10 @@ class ContainerInterface:
         self.context_dir = repo_root.joinpath("resources")
         if self.arm64:
             self.composefile_dir = repo_root.joinpath("docker-compose.arm64.yml")
-            self.tag = "deploy-arm64-v0.7"
+            self.tag = "deploy-arm64-v0.8"
         else:
             self.composefile_dir = repo_root.joinpath("docker-compose.yml")
-            self.tag = "deploy-v0.7"
+            self.tag = "deploy-v0.8"
         self.repo_name_acr = "crpi-jq3nu6qbricb9zcb.cn-beijing.personal.cr.aliyuncs.com/zxh_in_bitac/drones"
         self.repo_name = "deathhorn/onboard_env"
         self.pull_from_acr = alibaba_acr
@@ -237,7 +237,7 @@ class ContainerInterface:
             print(f"[INFO] Using HTTPS proxy {https_proxy} for building the image.")
         if len(http_proxy) == 0 and len(https_proxy) == 0:
             print("[WARNING] No proxy environment variables found. Building without proxy. The build may stuck or fail if the network is restricted.")
-        subprocess.run(command, check=False, cwd=Path(__file__).resolve().parent, env=env)
+        subprocess.run(command, check=True, cwd=Path(__file__).resolve().parent, env=env)
         tag_command = ["docker", "tag", self.get_image_id(), f"{self.repo_name_acr}:{self.tag}"]
         subprocess.run(tag_command, check=True)
     
