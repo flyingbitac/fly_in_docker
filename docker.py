@@ -309,7 +309,7 @@ class ContainerInterface:
                 "bash",
             ])
         else:
-            raise RuntimeError(f"The container '{running_container_name}' is not running.")
+            raise RuntimeError(f"The container '{self.container_name}' is not running.")
 
     def stop(self):
         """Stop the running container using the Docker compose command.
