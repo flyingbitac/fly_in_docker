@@ -83,8 +83,8 @@ RUN cd /root/ws/livox_ws && \
     cd /root/ws/livox_ws/src && \
     git config --global http.proxy $HTTP_PROXY && \
     git config --global https.proxy $HTTPS_PROXY && \
-    git clone https://github.com/flyingbitac/livox_ros_driver2.git && \
     git clone https://github.com/flyingbitac/FAST_LIO.git --recursive && \
+    git clone https://github.com/flyingbitac/livox_ros_driver2.git && \
     git config --global --unset http.proxy && \
     git config --global --unset https.proxy
 
