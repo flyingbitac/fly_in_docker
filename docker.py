@@ -278,6 +278,7 @@ class ContainerInterface:
                 "--hostname",
                 self.host_name,
                 *self.mount_args(),
+                f"--env=TZ=:PRC", # set timezone to China Standard Time
                 f"--env=DISPLAY={os.environ.get('DISPLAY', ':0')}",
                 f"--env=ROS_HOSTNAME={self.host_name}",
                 f"--env=ROS_MASTER_URI=http://{self.host_name}:{ros_port}/",
