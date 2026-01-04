@@ -94,4 +94,7 @@ RUN cd /root/ws/livox_ws/ && \
     bash ./build.sh ROS1 && \
     echo "source /root/ws/livox_ws/devel/setup.bash" >> /root/.bashrc
 
+RUN pip install tqdm pybind11 -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple && \
+    python3 -m pip cache purge
+
 ENTRYPOINT ["bash", "-c", "service ssh restart && exec bash"]
