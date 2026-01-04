@@ -1,6 +1,11 @@
 # Docker Image and Utility for Onboard Computers
 
-This repository contains [a Docker image](https://hub.docker.com/repository/docker/deathhorn/onboard_env/general) and [a container interface](docker.py) for simulation and hardware experiments of drones.
+**TL;DR**: This repository contains [a Docker image](https://hub.docker.com/repository/docker/deathhorn/onboard_env/general) and [a container interface](docker.py) for simulation and hardware experiments of drones.
+
+![Cover](cover.png)
+
+The docker images provide a ready-to-use environment with pre-installed packages for drone **simulation and hardware offboard experiments**, for **both x64 and arm64** platforms. We recommend using this image for both simulation on workstations and real-world experiments, as it greatly **simplifies the setup process** and **ensures environment consistency** across different machines. The environment details can be found in the [Environment Details](#environment-details).
+
 - [Docker Image and Utility for Onboard Computers](#docker-image-and-utility-for-onboard-computers)
   - [Usage](#usage)
     - [Basic Usage](#basic-usage)
@@ -12,7 +17,7 @@ This repository contains [a Docker image](https://hub.docker.com/repository/dock
     - [Connect to the container via SSH](#connect-to-the-container-via-ssh)
     - [Simulation with Custom Drone Models](#simulation-with-custom-drone-models)
   - [Environment Details](#environment-details)
-    - [Depth Camera Support](#depth-camera-support)
+    - [Intel RealSense Depth Camera Support](#intel-realsense-depth-camera-support)
     - [LiDAR Support](#lidar-support)
     - [OptiTrack Motion Capture Support](#optitrack-motion-capture-support)
     - [Neural Network Inference Support](#neural-network-inference-support)
@@ -26,7 +31,7 @@ Setting everything up:
 git clone https://github.com/flyingbitac/fly_in_docker.git
 # then pull the prebuilt image
 python fly_in_docker/docker.py pull
-# or download the resources and build the image locally
+# or download the resources and build the image locally (not recommended)
 python fly_in_docker/docker.py build
 ```
 
@@ -61,14 +66,21 @@ source ~/ws/vins/devel/setup.bash
 roslaunch vins up.launch
 ```
 #### Fast-LIO2
+Before using Fast-LIO2, please modify the IP, subnet mask, and gateway of the **HOST** OS ethernet to connect to the Livox LiDAR:
+- **IP**: `192.168.1.5`
+- **Subnet Mask**: `255.255.255.0`
+- **Gateway**: `192.168.1.1`
+
+Then run:
 ```bash
 source ~/ws/livox_ws/devel/setup.bash
-roslaunch fast_lio2 up_lidar_imu.launch
+roslaunch fast_lio2 hardware_lidar_imu.launch ip:=192.168.1.1xx
 ```
 #### SITL with gazebo and PX4 (for x64 image only)
 ```bash
 source ~/ws/px4_setup.bash
-roslaunch px4 mavros_posix_sitl.launch
+export DISPLAY=:x # replace `:x` with your display number
+roslaunch px4 mavros_posix_sitl.launch [gui:=false] # if you want gazebo to run in the headless mode
 ```
 
 ### Connect to the container via SSH
@@ -105,8 +117,9 @@ roslaunch px4 mavros_posix_sitl.launch vehicle:=custom_model_1
 - **ROS & MAVROS**: Noetic
 - **PX4 Firmware**: v1.15.4
 - **Python**: 3.8.10
+- **Gazebo**: 11 (with PX4 SITL support) (**x64 image only**)
 
-### Depth Camera Support
+### Intel RealSense Depth Camera Support
 - ros-noetic-cv-bridge
 - ros-noetic-realsense2-camera
 - librealsense2
