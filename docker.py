@@ -42,10 +42,10 @@ class ContainerInterface:
         self.context_dir = repo_root.joinpath("resources")
         if self.arm64:
             self.composefile_dir = repo_root.joinpath("docker-compose.arm64.yml")
-            self.tag = "deploy-arm64-v0.8"
+            self.tag = "deploy-arm64-v0.9"
         else:
             self.composefile_dir = repo_root.joinpath("docker-compose.yml")
-            self.tag = "deploy-v0.8"
+            self.tag = "deploy-v0.9"
         self.repo_name_acr = "crpi-jq3nu6qbricb9zcb.cn-beijing.personal.cr.aliyuncs.com/zxh_in_bitac/drones"
         self.repo_name = "deathhorn/onboard_env"
         self.pull_from_acr = alibaba_acr
@@ -278,6 +278,7 @@ class ContainerInterface:
                 "--hostname",
                 self.host_name,
                 *self.mount_args(),
+                f"--env=TZ=:PRC", # set timezone to China Standard Time
                 f"--env=DISPLAY={os.environ.get('DISPLAY', ':0')}",
                 f"--env=ROS_HOSTNAME={self.host_name}",
                 f"--env=ROS_MASTER_URI=http://{self.host_name}:{ros_port}/",
@@ -309,7 +310,7 @@ class ContainerInterface:
                 "bash",
             ])
         else:
-            raise RuntimeError(f"The container '{running_container_name}' is not running.")
+            raise RuntimeError(f"The container '{self.container_name}' is not running.")
 
     def stop(self):
         """Stop the running container using the Docker compose command.

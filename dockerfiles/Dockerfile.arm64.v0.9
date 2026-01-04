@@ -1,0 +1,100 @@
+FROM deathhorn/onboard_env:deploy-arm64-v0.5
+
+ARG HTTP_PROXY=""
+ARG HTTPS_PROXY=""
+
+WORKDIR /root/ws/
+
+# install text editors and a dependency of ego-planner
+# ros-noetic-pybind11-catkin: dependency of tmpc
+# SUPER dependencies: https://github.com/hku-mars/SUPER#21-installation
+RUN apt update && \
+    DEBIAN_FRONTEND=noninteractive apt install -y \
+        libarmadillo-dev \
+        vim \
+        nano \
+        ros-noetic-pybind11-catkin \
+        libpcl-dev \
+        pcl-tools \
+        ros-noetic-pcl* \
+        ros-noetic-timed-roslaunch \
+        ros-noetic-rviz \
+        ros-noetic-rqt-image-view \
+        libglfw3-dev libglew-dev libncurses5-dev libncursesw5-dev libeigen3-dev && \
+    ln -s /usr/include/eigen3/Eigen /usr/include/Eigen && \
+    DEBIAN_FRONTEND=noninteractive apt install -y \
+        ros-noetic-mavros* \
+        ros-noetic-pcl* \
+        ros-noetic-rosfmt \
+        libdw-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN pip install -q torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 --index-url https://download.pytorch.org/whl/cpu && \
+    python3 -m pip cache purge
+
+# install dependencies of YOPO: https://github.com/TJU-Aerial-Robotics/YOPO/blob/YOPO-Simple/YOPO/requirements.txt
+RUN pip install --ignore-installed -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple \
+        open3d==0.18.0 \
+        ruamel-yaml==0.17.21 \
+        tensorboard==2.14.0 \
+        tensorboardX \
+        rich==14.0.0 \
+        scikit-build==0.18.1 \
+        h5py && \
+    python3 -m pip cache purge
+
+# video recording dependency
+RUN pip install imageio[ffmpeg,pyav] -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple && \
+    python3 -m pip cache purge
+
+# VINS-Fusion
+RUN cd /root/ws/vins && \
+    mkdir -p /root/ws/vins/src && \
+    cd /root/ws/vins/src && \
+    git config --global http.proxy $HTTP_PROXY && \
+    git config --global https.proxy $HTTPS_PROXY && \
+    git clone https://github.com/flyingbitac/VINS-Fusion.git && \
+    git config --global --unset http.proxy && \
+    git config --global --unset https.proxy
+
+RUN cd /root/ws/vins/ && \
+    catkin config --extend /opt/ros/noetic && \
+    catkin build && \
+    echo "source /root/ws/vins/devel/setup.bash" >> /root/.bashrc
+
+# install Livox SDK2
+RUN mkdir -p /root/ws/livox_ws && \
+    cd /root/ws/livox_ws && \
+    git config --global http.proxy $HTTP_PROXY && \
+    git config --global https.proxy $HTTPS_PROXY && \
+    git clone https://github.com/Livox-SDK/Livox-SDK2.git && \
+    git config --global --unset http.proxy && \
+    git config --global --unset https.proxy
+
+RUN cd /root/ws/livox_ws/Livox-SDK2/ && \
+    mkdir build && \
+    cd /root/ws/livox_ws/Livox-SDK2/build && \
+    cmake .. && make -j && \
+    make install
+
+# install livox_ros_driver2 and FAST_LIO
+RUN cd /root/ws/livox_ws && \
+    mkdir -p /root/ws/livox_ws/src && \
+    cd /root/ws/livox_ws/src && \
+    git config --global http.proxy $HTTP_PROXY && \
+    git config --global https.proxy $HTTPS_PROXY && \
+    git clone https://github.com/flyingbitac/FAST_LIO.git --recursive && \
+    git clone https://github.com/flyingbitac/livox_ros_driver2.git && \
+    git config --global --unset http.proxy && \
+    git config --global --unset https.proxy
+
+RUN cd /root/ws/livox_ws/ && \
+    catkin config --extend /opt/ros/noetic && \
+    cd /root/ws/livox_ws/src/livox_ros_driver2/ && \
+    bash ./build.sh ROS1 && \
+    echo "source /root/ws/livox_ws/devel/setup.bash" >> /root/.bashrc
+
+RUN pip install tqdm pybind11 -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple && \
+    python3 -m pip cache purge
+
+ENTRYPOINT ["bash", "-c", "service ssh restart && exec bash"]

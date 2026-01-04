@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If you found this work useful, please consider cite this repository."
+authors:
+- family-names: "Zhang"
+  given-names: "Xinhong"
+  orcid: "https://orcid.org/0009-0009-9487-7260"
+title: "Fly in Docker: A Docker Image and Utility for Simulation and Experiments of Drones"
+version: 0.9.0
+url: "https://github.com/flyingbitac/fly_in_docker"
