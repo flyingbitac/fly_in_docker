@@ -1,0 +1,34 @@
+FROM deathhorn/onboard_env:deploy-v0.9
+
+ARG HTTP_PROXY=""
+ARG HTTPS_PROXY=""
+
+WORKDIR /root/ws/
+
+RUN curl -sSf https://librealsense.realsenseai.com/Debian/librealsenseai.asc | \
+        gpg --dearmor | tee /etc/apt/keyrings/librealsenseai.gpg > /dev/null && \
+    echo "deb [signed-by=/etc/apt/keyrings/librealsenseai.gpg] https://librealsense.realsenseai.com/Debian/apt-repo `lsb_release -cs` main" | \
+        tee /etc/apt/sources.list.d/librealsense.list && \
+    apt update && \
+    apt install -y \
+        ros-noetic-usb-cam \
+        screen && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN git config --global http.proxy $HTTP_PROXY && \
+    git config --global https.proxy $HTTPS_PROXY && \
+    git clone --recursive -b release-0.6.3 https://github.com/osqp/osqp.git /root/ws/osqp && \
+    git config --global --unset http.proxy && \
+    git config --global --unset https.proxy
+
+RUN cd /root/ws/osqp && \
+    mkdir build && \
+    cd build && \
+    cmake -G "Unix Makefiles" .. && \
+    cmake --build . && \
+    cmake --build . --target install
+
+RUN pip install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple zmq && \
+    python3 -m pip cache purge
+
+ENTRYPOINT ["bash", "-c", "service ssh restart && exec bash"]

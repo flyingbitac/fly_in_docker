@@ -42,10 +42,10 @@ class ContainerInterface:
         self.context_dir = repo_root.joinpath("resources")
         if self.arm64:
             self.composefile_dir = repo_root.joinpath("docker-compose.arm64.yml")
-            self.tag = "deploy-arm64-v0.9"
+            self.tag = "deploy-arm64-v0.10"
         else:
             self.composefile_dir = repo_root.joinpath("docker-compose.yml")
-            self.tag = "deploy-v0.9"
+            self.tag = "deploy-v0.10"
         self.repo_name_acr = "crpi-jq3nu6qbricb9zcb.cn-beijing.personal.cr.aliyuncs.com/zxh_in_bitac/drones"
         self.repo_name = "deathhorn/onboard_env"
         self.pull_from_acr = alibaba_acr
@@ -53,12 +53,12 @@ class ContainerInterface:
             self.image_id = self.get_image_id()
         self.container_name = f"{str(self.work_dir)}-{self.tag}"[1:].replace("/", "_")
         self.host_name = get_hostname()
-        
+
         assert is_user_in_docker_group(), dedent(f"""
             The current user is not in the 'docker' group. Please add the user to the 'docker' group and restart the terminal:
             `sudo usermod -a -G docker {getpass.getuser()}`
         """)
-        
+
         self.runtime_resources_dir = repo_root.joinpath("runtime_resources")
         self.mounted_volumes: List[Dict[str, Union[str, bool]]] = []
         self.mount_volume(source=self.work_dir, target=Path(workspace_target))
@@ -71,14 +71,14 @@ class ContainerInterface:
         # keep the environment variables from the current environment
         self.environ = os.environ
         self.custom_model_paths = custom_model_paths
-    
+
     @property
     def image_name(self) -> str:
         if self.pull_from_acr:
             return f"{self.repo_name_acr}:{self.tag}"
         else:
             return f"{self.repo_name}:{self.tag}"
-    
+
     def get_image_id(self) -> str:
         """Get the image ID of the Docker image.
 
@@ -96,7 +96,7 @@ class ContainerInterface:
             if name == f"{self.repo_name}:{self.tag}" or name == f"{self.repo_name_acr}:{self.tag}":
                 return id
         raise RuntimeError(f"Image not found. Please pull or build the image first.")
-    
+
     def add_custom_drone_model(
         self,
         model_path
@@ -155,7 +155,7 @@ class ContainerInterface:
                 "read_only": read_only,
             }
         )
-    
+
     def mount_args(self):
         os.makedirs(self.work_dir.joinpath("ros_log"), exist_ok=True)
         # os.makedirs(self.dir.joinpath("ros_outputs"), exist_ok=True)
@@ -203,7 +203,7 @@ class ContainerInterface:
         image_name_acr = f"{self.repo_name_acr}:{self.tag}"
         names = [line.strip() for line in result.splitlines()]
         return (image_name_docker_hub in names) or (image_name_acr in names)
-    
+
     def get_resources(self):
         """
         Download necessary resources to build the image if they do not exist.
@@ -218,7 +218,7 @@ class ContainerInterface:
             url="https://github.com/IntelRealSense/librealsense/blob/master/config/99-realsense-libusb.rules",
             dest=str(self.context_dir.joinpath("99-realsense-libusb.rules")),
         )
-    
+
     def build(self):
         command = [
             "docker",
@@ -240,7 +240,7 @@ class ContainerInterface:
         subprocess.run(command, check=True, cwd=Path(__file__).resolve().parent, env=env)
         tag_command = ["docker", "tag", self.get_image_id(), f"{self.repo_name_acr}:{self.tag}"]
         subprocess.run(tag_command, check=True)
-    
+
     def pull(self):
         if self.does_image_exist():
             print(f"[INFO] The image '{self.image_name}' already exists. No need to pull it again.")
@@ -263,10 +263,10 @@ class ContainerInterface:
 
             with open(self.runtime_resources_dir.joinpath("model_CMakeLists.txt"), "r") as f:
                 self.model_cmake_list = f.readlines()
-            
+
             for model_path in self.custom_model_paths:
                 self.add_custom_drone_model(model_path)
-            
+
             # start the container
             command = [
                 "docker",
@@ -328,7 +328,7 @@ class ContainerInterface:
             )
         else:
             raise RuntimeError(f"Can't stop container '{self.container_name}' as it is not running.")
-    
+
     def _get_ros_ports(self) -> int:
         result = subprocess.run(
             ["docker", "ps", "--format", "{{.Names}}"],
@@ -348,7 +348,7 @@ class ContainerInterface:
             base_port += 1
         print(f"[INFO] Using port {base_port} for ROS master.")
         return base_port
-    
+
     def _get_gazebo_ports(self) -> int:
         result = subprocess.run(
             ["docker", "ps", "--format", "{{.Names}}"],
@@ -381,7 +381,7 @@ def parse_cli_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Utility for using Docker. Run `docker login --username=zxhomo crpi-jq3nu6qbricb9zcb.cn-beijing.personal.cr.aliyuncs.com` to login to the docker registry."
     )
-    
+
     # We have to create separate parent parsers for common options to our subparsers
     parent_parser = argparse.ArgumentParser(add_help=False)
     parent_parser.add_argument(
