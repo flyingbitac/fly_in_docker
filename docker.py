@@ -381,6 +381,12 @@ def parse_cli_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Utility for using Docker. Run `docker login --username=zxhomo crpi-jq3nu6qbricb9zcb.cn-beijing.personal.cr.aliyuncs.com` to login to the docker registry."
     )
+    parser.set_defaults(
+        dir=os.getcwd(),
+        use_alibaba_acr=False,
+        arm=False,
+        custom_model_path=[],
+    )
 
     # We have to create separate parent parsers for common options to our subparsers
     parent_parser = argparse.ArgumentParser(add_help=False)
@@ -394,7 +400,7 @@ def parse_cli_args() -> argparse.Namespace:
     parent_parser.add_argument("-c", "--custom_model_path", type=str, default=[], action="append", help="Path to a custom drone model directory.")
 
     # Actual command definition begins here
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("start", help="Pull the docker image and create the container in detached mode.", parents=[parent_parser])
     subparsers.add_parser("enter", help="Begin a new bash process within an existing container.", parents=[parent_parser])
     subparsers.add_parser("stop", help="Stop the docker container and remove it.", parents=[parent_parser])
@@ -420,7 +426,10 @@ def main(args: argparse.Namespace):
         arm=args.arm
     )
 
-    if   args.command == "start": ci.start()
+    if args.command is None:
+        ci.start()
+        ci.enter()
+    elif args.command == "start": ci.start()
     elif args.command == "enter": ci.enter()
     elif args.command == "stop":  ci.stop()
     elif args.command == "pull":  ci.pull()
